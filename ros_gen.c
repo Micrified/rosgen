@@ -80,15 +80,22 @@ int main (int argc, char *argv[])
 	}
 
 	// Parse a single element from the file stream
-	if ((parse_err = parse_xml_element(file, &element_p)) != PARSE_OK) {
+	while ((parse_err = parse_xml_element(file, &element_p)) == PARSE_OK) {
+		show_xml_element(element_p);
+
+		// Process the element
+		
+		free_xml_element(element_p);
+		element_p = NULL;
+	}
+
+	if (parse_err != PARSE_ERROR_BAD_START_TAG) {
 		fprintf(stderr, FMT_ERR "%s: %s\n", __FILE__, __LINE__, parse_err_str(parse_err),
 			get_err_context());
 		err = 3;
 		goto end;
 	} else {
-		show_xml_element(element_p);
-		free_xml_element(element_p);
-		element_p = NULL;
+		fprintf(stdout, "At the end of the file!\n");
 	}
 
 	// Close the file stream

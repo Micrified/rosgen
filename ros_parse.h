@@ -21,7 +21,9 @@ typedef enum {
 	PARSE_OK,
 	PARSE_ERROR_BAD_PARAM,
 	PARSE_ERROR_INVALID_FORMAT,
-	PARSE_ERROR_BAD_TAG,
+	PARSE_ERROR_BAD_START_TAG,
+	PARSE_ERROR_UNESCAPED_STRING,
+	PARSE_ERROR_BAD_END_TAG,
 	PARSE_ERROR_FILE_STREAM,
 	PARSE_ERROR_TAG_MISMATCH,
 	PARSE_ERROR_NO_MEMORY,
@@ -35,13 +37,20 @@ typedef enum {
 	XML_COLLECTION,
 } xml_type_t;
 
+// Structure: XML element parameter
+typedef struct {
+	char *key;
+	char *value;
+} xml_element_parameter_t;
+
 // Structure: XML element
 typedef struct xml_element_t {
 	char *tag;
 	xml_type_t type;
+	xml_element_parameter_t   *param;
 	union {
 		struct xml_element_t **collection;
-		char           *string;
+		char                  *string;
 	} data;
 } xml_element_t;
 
@@ -63,14 +72,37 @@ typedef struct xml_element_t {
 parse_err_t parse_xml_string (FILE *file, char **string_p);
 
 /*\
+ * @brief Parses a string contained within quotation marks. Anything is
+ *        accepted up until a closing quotation mark is found or EOF
+ * @note Owner responsible for freeing string memoru
+ * @param file The file stream to read from
+ * @param string_p Pointer to string at which string will be assigned
+ * @return PARSE_OK on success; else error
+\*/
+parse_err_t parse_xml_value (FILE *file, char **string_p);
+
+/*\
+ * @brief Parses a parameter containing a key and value assignment
+ * @note  Strips leading whitespace
+ * @note  Owner responsible for freeing parameter memory
+ * @param file The file stream to read from
+ * @param param_p Pointer to parameter field at which parameter will be 
+ *                assigned
+ * @return PARSE_OK on success; else error
+\*/
+parse_err_t parse_xml_param (FILE *file, xml_element_parameter_t **param_p);
+
+/*\
  * @brief Parses an XML opening or closing tag; saves tag in given pointer
  * @note  Owner responsible for freeing string memory
  * @param file The file stream to read from
  * @param open Set to true if expecting an opening tag; else closing one
  * @param tag_p Pointer to the string-pointer at which tag will be saved
+ * @param param_p Pointer to parameter field to be parsed
  * @return PARSE_OK on success; else error
 \*/
-parse_err_t parse_xml_tag (FILE *file, bool open, char **tag_p);
+parse_err_t parse_xml_tag (FILE *file, bool open, char **tag_p,
+	xml_element_parameter_t **param_p);
 
 /*\
  * @brief Parses an XML element, which can be a string or collection 
