@@ -10,32 +10,33 @@
  *******************************************************************************
 */
 
-// Enumeration: 
+// Enumeration: Possible element types
 typedef enum {
-	TYPE_SHORT,
+	TYPE_BOOL,
 	TYPE_LONG,
-	TYPE_STRING
+	TYPE_STRING,
+
+	TYPE_MAX
 } ros_element_type_t;
 
 // Structure: key-value intepretation
 typedef struct {
-	ros_element_type_t type;
+	ros_element_type_t type;           // Data-type: found
 	union {
-		uint8_t data_short;
-		uint64_t data_long;
-		char *data_string;
+		bool data_bool;                // Data-type: bool
+		int64_t data_long;             // Data-type: long
+		char *data_string;             // Data-type: string
 	} data;
 } ros_value_t;
 
 // Structure: Describes a ROS callback
 typedef struct {
-	char *name;                        // Callback identifier 
-	uint64_t wcet;                     // Worst case execution time (ns)
-	uint8_t prio;                      // Callback priority
-	bool is_timer;                     // Whether callback is timer triggered
-	uint64_t timer_period;             // Period of the timer
-	char **topics_subscribed;          // Topics triggering callback
-	char **topics_publish;             // Topics published on after WCET
+	ros_value_t *name;                 // Callback identifier 
+	ros_value_t *wcet;                 // Worst case execution time (ns)
+	ros_value_t *prio;                 // Callback priority
+	ros_value_t *timer_period;         // Period of the timer
+	ros_value_t **topics_subscribed;   // Topics triggering callback
+	ros_value_t **topics_publish;      // Topics published on after WCET
 } ros_callback_t;
 
 // Structure: Describes a ROS node
@@ -49,6 +50,7 @@ typedef struct {
 	int id;                            // Executor identifier
 	ros_node_t **nodes;                // Null-terminated list of nodes
 } ros_executor_t;
+
 
 
 /*

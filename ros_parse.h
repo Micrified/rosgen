@@ -35,6 +35,8 @@ typedef enum {
 typedef enum {
 	XML_STRING,
 	XML_COLLECTION,
+	
+	XML_MAX
 } xml_type_t;
 
 // Structure: XML element parameter
