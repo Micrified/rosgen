@@ -258,6 +258,84 @@ bad_type:
 	return false;
 }
 
+ros_value_t **parse_strings_from_xml_collection (xml_element_t **collection)
+{
+	ros_value_t **v, **value_set = NULL;
+	xml_element_t **p, *element = NULL;
+	size_t size = 0;
+	off_t offset = 0;
+
+	// Compute the size of the collection
+	for (p = collection; *p != NULL; ++p) {
+		size++;
+	}
+
+	// Allocate the corresponding set of strings
+	if ((value_set = malloc((size + 1) * sizeof(ros_value_t *))) == NULL) {
+		fprintf(stderr, 
+			"%s:%d: Unable to allocate enough memory for collection!\n",
+			__FILE__, __LINE__);
+		goto discard;
+	}
+
+	// Make last element NULL
+	value_set[size] = NULL;
+
+	// Attempt to convert all elements, expecting a string type
+	for (off_t i = 0, p = collection; *p != NULL; ++p, ++i) {
+		ros_value_t *value = NULL;
+		char *string = NULL;
+
+		// Check name; assume topic
+		if (strcmp(p->tag, "topic") != 0) {
+			fprintf(stderr, "Expected element \"%s\" but \
+				found \"%s\" instead!\n", "topic", p->tag);
+			goto discard;
+		}
+
+		// Check type; expect string
+		if (p->type != XML_STRING) {
+			fprintf(stderr, "Exists element \"%s\" not of type string!\n");
+			goto discard;
+		}
+
+		// Allocate a new value
+		if ((value = malloc(sizeof(ros_value_t))) == NULL) {
+			fprintf(stderr, "%s:%d: Unable to allocate enough memory for \
+				value!\n", __FILE__, __LINE__);
+			goto discard;
+		}
+
+		// Allocate a copy of the string 
+		if (!acceptString(p->data.string, &string)) {
+			fprintf(stderr, "%s:%d: Unable to allocate string copy!\n",
+				__FILE__, __LINE__);
+			goto discard;
+		}
+
+		// Configure the value
+		value->type = TYPE_STRING;
+		value->data->string = string;
+
+		// Assign to array
+		value_set[i] = value;
+	}
+
+
+	return value_set;
+
+discard:
+
+	// Destroy set if created
+	if (value_set != NULL) {
+		for (v = value_set; *v != NULL; ++v) {
+			free_ros_value(*v);
+		}
+		free(value_set);
+	}
+
+	return NULL;
+}
 
 /*
  *******************************************************************************
@@ -265,9 +343,86 @@ bad_type:
  *******************************************************************************
 */
 
+void free_callback (ros_callback_t *callback_p)
+{
+
+	// Ignore NULL pointer
+	if (callback_p == NULL) {
+		return;
+	}
+
+	// Free fields
+	free_ros_value(name);
+	free_ros_value(wcet);
+	free_ros_value(prio);
+	free_ros_value(timer_period);
+
+	// Free subscribed topic list
+	if (topics_subscribed != NULL) {
+		for (ros_value_t **p = topics_subscribed; *p != NULL; ++p) {
+			free_ros_value(*p);
+		}
+		free_ros_value(topics_subscribed);
+	}
+
+	// Free publish topic list
+	if (topics_publish != NULL) {
+		for (ros_value_t **p = topics_publish; *p != NULL; ++p) {
+			free_ros_value(*p);
+		}
+		free_ros_value(topics_publish);
+	}
+
+	// Finally free the callback itself
+	free(callback_p);
+}
+
+void free_node (ros_node_t *node_p)
+{
+
+	// Ignore NULL pointer
+	if (node_p == NULL) {
+		return;
+	}
+
+	// Free name
+	free(node->name);
+
+	// Free individual callbacks, then the callback array
+	if (node->callbacks != NULL) {
+		for (ros_callback_t **p = node->callbacks; *p != NULL; ++p) {
+			free_callback(*p);
+		}
+		free(node->callbacks);
+	}
+
+	// Finally free the node itself
+	free(node_p);
+}
+
+void free_executor (ros_executor_t *executor_p)
+{
+
+	// Ignore NULL pointer
+	if (executor_p == NULL) {
+		return;
+	}
+
+	// Free node elements
+	if (executor_p->nodes != NULL) {
+		for (ros_node_t **n = executor_p->nodes; *n != NULL; ++n) {
+			free_node(*n);
+		}
+		free(executor_p->nodes);
+	}
+
+	// Finally free the executor itself
+	free(executor_p);
+}
 
 ros_callback_t *parse_ros_callback (xml_element_t *element)
 {
+	ros_callback_t callback_p = NULL;
 	ros_callback_t callback = {0};
 	ros_value_t *value = NULL;
 	xml_element_t *set_element = NULL;
@@ -318,44 +473,46 @@ ros_callback_t *parse_ros_callback (xml_element_t *element)
 		callback.timer_period = value;
 	}
 
-	// Fetch subscribe topics
+	// Match optional subscribed topics
 	if ((set_element = exists_element_with_key("topics_subscribed", 
 		element->data->collection)) != NULL) {
-		ros_value_t **topics_subscribed = NULL;
-		xml_element_t **p;
-		size_t size = 0;
-		off_t offset = 0;
+		ros_value_t **value_set = NULL;
 
-		// Verify it's a collection
-		if (set_element->type != XML_COLLECTION) {
-			fprintf(stderr, 
-				"Expected topics_subscribed in \"callback\" to be a set!\n");
+		if ((value_set = parse_strings_from_xml_collection(
+			set_element->data.collection)) == NULL) {
+			fprintf(stderr, "Anomaly in \"topics_subscribed\" collection!\n");
 			goto discard;
+		} else {
+			callback.topics_subscribed = value_set;
 		}
-
-		// Compute size
-		for (p = set_element->data->collection; (*p) != NULL; ++p, ++size)
-			;
-
-		// Allocate and perform check
-		if ((topics_subscribed = malloc(size * sizeof(ros_value_t *))) 
-			== NULL) {
-			fprintf(stderr,
-			"Unable to allocate enough memory for \"callback\" topic set!\n");
-			goto discard;
-		}
-
-		// Convert all elements, expecting a string
-		for (p = set_element->data->collection; (*p) != NULL; ++p) {
-
-			// todo: perform copy
-
-			topics_subscribed[offset] = 
-		}
-
 	}
 
-	// Fetch publish topics
+	// Match optional publish topics
+	if ((set_element = exists_element_with_key("topics_publish", 
+		element->data->collection)) != NULL) {
+		ros_value_t **value_set = NULL;
+
+		if ((value_set = parse_strings_from_xml_collection(
+			set_element->data.collection)) == NULL) {
+			fprintf(stderr, "Anomaly in \"topics_publish\" collection!\n");
+			goto discard;
+		} else {
+			callback.topics_publish = value_set;
+		}
+	}
+
+	// Allocate a callback element 
+	if ((callback_p = malloc(sizeof(ros_callback_t))) == NULL) {
+		fprintf(stderr, "%s:%d: Unable to allocate callback!\n", __FILE__, 
+			__LINE__);
+		goto discard;
+	}
+
+	// Copy contents in
+	memcpy(callback_p, &callback, sizeof(ros_callback_t));
+
+	// Return pointer
+	return callback_p;
 
 	// Discard
 discard:
@@ -379,10 +536,185 @@ discard:
 
 ros_node_t *parse_ros_node (xml_element_t *element)
 {
+	ros_node_t *node_p = NULL;
+	xml_element_t **e = NULL;
+	ros_callback_t **callbacks = NULL;
+	size_t size = 0;
+	off_t offset = 0;
 
+	// Expect element is called node
+	if (strcmp(element->tag, "node") != 0) {
+		fprintf(stderr, "Expected tag \"node\", but got %s\n", 
+			element->tag);
+		return NULL;
+	}
+
+	// Expect element has type collection
+	if (element->type != XML_COLLECTION) {
+		fprintf(stderr, 
+			"Expected \"node\" to contain a collection, but got string\n");
+		return NULL;	
+	}
+
+	// Expect has a parameter with the name field
+	if (element->param == NULL || strcmp(element->param->key, "name") == 0) {
+		fprintf(stderr, "Expected parameter \"name\"! Either missing \
+			or mistyped!\n");
+		return NULL;
+	}
+
+	// Compute number of callbacks
+	for (e = element->data->collection; (*e) != NULL; ++e) {
+		size++;
+	}
+
+	// Allocate memory for callbacks
+	if ((callbacks = malloc((size + 1) * sizeof(ros_callback_t *))) == NULL) {
+		fprintf(stderr, "%s:%d Unable to allocate memory for callbacks!\n",
+			__FILE__, __LINE__);
+		goto discard;
+	}
+
+	// Mark end of array with NULL
+	callbacks[size] = NULL;
+
+	// Parse elements into callbacks
+	for (e = element->data->collection; (*e) != NULL; ++e, ++offset) {
+		ros_callback_t *callback;
+
+		// Try parsing as callback
+		if ((callback = parse_ros_callback(*e)) == NULL) {
+			fprintf(stderr, "Unable to parse callback in node!\n");
+			goto discard;
+		}
+
+		// Assign pointer
+		callbacks[offset] = callback;
+	}
+
+	// Allocate and configure a node
+	if ((node_p = malloc(sizeof(ros_callback_t))) == NULL) {
+		fprintf(stderr, "%s:%d: Unable to allocate memory for node!\n",
+			__FILE__, __LINE__);
+		goto discard;
+	}
+
+	// Copy the name of the node (parameter)
+	if (!acceptString(element->param->value, &(node_p->name))) {
+		fprintf(stderr, "%s:%d: Unable to allocate copy of parameter value!\n",
+			__FILE__, __LINE__);
+		goto discard;
+	}
+
+	// Configure and return pointer
+	node_p->callbacks = callbacks;
+
+	return node_p;
+
+discard:
+
+	if (callbacks != NULL) {
+		for (ros_callback_t **c = callbacks; *c != NULL; ++c) {
+			free_callback(*c);
+		}
+		free(callbacks);
+	}
+
+	if (node_p != NULL) {
+		free(node_p->name);
+		free(node_p);
+	}
+
+	return NULL;
 }
 
 ros_executor_t *parse_ros_executor (xml_element_t *element)
 {
+	ros_executor_t *executor_p = NULL;
+	xml_element_t **e = NULL;
+	ros_node_t **nodes = NULL;
+	size_t size = 0;
+	off_t offset = 0;
 
+	// Expect element is called executor
+	if (strcmp(element->tag, "executor") != 0) {
+		fprintf(stderr, "Expected tag \"node\", but got %s\n", 
+			element->tag);
+		return NULL;
+	}
+
+	// Expect element has type collection
+	if (element->type != XML_COLLECTION) {
+		fprintf(stderr, 
+			"Expected \"node\" to contain a collection, but got string\n");
+		return NULL;	
+	}
+
+	// Expect it has a parameter called id
+	if (element->param == NULL || strcmp(element->param->key, "id") == 0) {
+		fprintf(stderr, "Expected parameter \"id\"! Either missing \
+			or mistyped!\n");
+		return NULL;
+	}
+
+	// Compute number of nodes
+	for (e = element->data->collection; (*e) != NULL; ++e) {
+		size++;
+	}
+
+	// Allocate memory for nodes
+	if ((nodes = malloc((size + 1) * sizeof(ros_node_t *))) == NULL) {
+		fprintf(stderr, "%s:%d Unable to allocate memory for nodes!\n",
+			__FILE__, __LINE__);
+		goto discard;
+	}
+
+	// Mark end of array with NULL
+	nodes[size] = NULL;
+
+	// Parse elements into callbacks
+	for (e = element->data->collection; (*e) != NULL; ++e, ++offset) {
+		ros_node_t *node;
+
+		// Try parsing as node
+		if ((node = parse_ros_node(*e)) == NULL) {
+			fprintf(stderr, "Unable to parse node in executor!\n");
+			goto discard;
+		}
+
+		// Assign pointer
+		nodes[offset] = node;
+	}
+
+	// Allocate and configure a executor
+	if ((executor_p = malloc(sizeof(ros_executor_t))) == NULL) {
+		fprintf(stderr, "%s:%d: Unable to allocate memory for executor!\n",
+			__FILE__, __LINE__);
+		goto discard;
+	}
+
+	// Copy the identifier of the executor (parameter)
+	if (!acceptLong(element->param->value, &(executor_p->id))) {
+		fprintf(stderr, "Unable to parse integer ID from \"%s\" for \
+			executor parameter!\n", element->param->value);
+		goto discard;
+	}
+
+	// Configure and return pointer
+	executor_p->nodes = nodes;
+
+discard:
+
+	if (nodes != NULL) {
+		for (ros_node_t **n = nodes; *n != NULL; ++n) {
+			free_node(*n);
+		}
+		free(nodes);
+	}
+
+	if (executor_p != NULL) {
+		free(executor_p);
+	}
+
+	return NULL;
 }

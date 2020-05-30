@@ -47,7 +47,7 @@ typedef struct {
 
 // Structure: Describes a ROS executor
 typedef struct {
-	int id;                            // Executor identifier
+	int64_t id;                        // Executor identifier
 	ros_node_t **nodes;                // Null-terminated list of nodes
 } ros_executor_t;
 
