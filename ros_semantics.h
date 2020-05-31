@@ -1,6 +1,15 @@
 #if !defined(ROS_SEMANTICS_H)
 #define ROS_SEMANTICS_H
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <ctype.h>
+#include <stdbool.h>
+#include <stdarg.h>
+
 #include "ros_parse.h"
 
 
@@ -9,6 +18,7 @@
  *                              Type Definitions                               *
  *******************************************************************************
 */
+
 
 // Enumeration: Possible element types
 typedef enum {
@@ -41,16 +51,15 @@ typedef struct {
 
 // Structure: Describes a ROS node
 typedef struct {
-	char *name;                        // Name of the node
+	ros_value_t *name;                 // Name of the node
 	ros_callback_t **callbacks;        // Null-terminated list of callbacks
 } ros_node_t;
 
 // Structure: Describes a ROS executor
 typedef struct {
-	int64_t id;                        // Executor identifier
+	ros_value_t *id;                   // Executor identifier
 	ros_node_t **nodes;                // Null-terminated list of nodes
 } ros_executor_t;
-
 
 
 /*
@@ -58,6 +67,52 @@ typedef struct {
  *                            Function Declarations                            *
  *******************************************************************************
 */
+
+
+/*\
+ * @brief Free's the memory associated with a given callback
+ * @param callback_p Pointer to the callback to free
+ * @return None
+\*/
+void free_callback (ros_callback_t *callback_p);
+
+/*\
+ * @brief Prints a callback to STDOUT
+ * @note DEBUG function
+ * @param callback_p Pointer to the callback
+ * @return None
+\*/
+void show_callback (ros_callback_t *callback_p);
+
+/*\
+ * @brief Free's the memory associated with a given node
+ * @param node_p Pointer to the node to free
+ * @return None
+\*/
+void free_node (ros_node_t *node_p);
+
+/*\
+ * @brief Prints a node to STDOUT
+ * @note DEBUG function
+ * @param node_p Pointer to the callback
+ * @return None
+\*/
+void show_node (ros_node_t *node_p);
+
+/*\
+ * @brief Free's the memory associated with a given executor
+ * @param callback_p Pointer to the executor to free
+ * @return None
+\*/
+void free_executor (ros_executor_t *executor_p);
+
+/*\
+ * @brief Prints an executor to STDOUT
+ * @note DEBUG function
+ * @param executor_p Pointer to the executor
+ * @return None
+\*/
+void show_executor (ros_executor_t *executor_p);
 
 /*\
  * @brief Parses a callback from the given xml element. Performs semantic 

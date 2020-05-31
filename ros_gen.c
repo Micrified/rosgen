@@ -9,6 +9,7 @@
 #include <errno.h>
 
 #include "ros_parse.h"
+#include "ros_semantics.h"
 
 /*
  *******************************************************************************
@@ -82,9 +83,18 @@ int main (int argc, char *argv[])
 	// Parse a single element from the file stream
 	while ((parse_err = parse_xml_element(file, &element_p)) == PARSE_OK) {
 		show_xml_element(element_p);
+		ros_callback_t *callback_p = NULL;
+		ros_node_t *node_p = NULL;
+		ros_executor_t *executor_p = NULL;
 
-		// Process the element
-		
+		// Process the element (expecting only a callback for now)
+		if ((executor_p = parse_ros_executor(element_p)) == NULL)
+		{
+			fprintf(stderr, "Err: Unable to parse the executor!\n");
+		} else {
+			show_executor(executor_p);
+			free_executor(executor_p);
+		}
 		free_xml_element(element_p);
 		element_p = NULL;
 	}

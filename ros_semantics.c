@@ -1,4 +1,4 @@
-#include "ros_semantics.c"
+#include "ros_semantics.h"
 
 
 /*
@@ -29,10 +29,54 @@ const char *g_ros_element_type_str_tab[TYPE_MAX] = {
 \*/
 static void free_ros_value (ros_value_t *ros_value_p)
 {
+	if (ros_value_p == NULL) {
+		return;
+	}
 	if (ros_value_p->type == TYPE_STRING) {
-		free(ros_value_p->data->string);
+		free(ros_value_p->data.data_string);
 	}
 	free(ros_value_p);
+}
+
+/*\
+ * @brief Prints a ROS value to STDOUT
+ * @param ros_value_p Pointer to the ros value structure
+ * @return none
+\*/
+static void show_ros_value (ros_value_t *ros_value_p)
+{
+
+	// Handle null pointers
+	if (ros_value_p == NULL) {
+		printf("Nil");
+		return;
+	}
+
+	// Tailor printing to specific format
+	switch (ros_value_p->type) {
+		case TYPE_BOOL: {
+			if (ros_value_p->data.data_bool == true) {
+				printf("true");
+			} else {
+				printf("false");
+			}
+		}
+		break;
+
+		case TYPE_LONG: {
+			printf("%ld", ros_value_p->data.data_long);
+		}
+		break;
+
+		case TYPE_STRING: {
+			printf("\"%s\"", ros_value_p->data.data_string);
+		}
+		break;
+
+		default: {
+			fprintf(stderr, "Unknown - check integrity!");
+		}
+	}
 }
 
 
@@ -75,7 +119,7 @@ static bool acceptLong (const char *string, int64_t *data_long_p)
 	}
 
 	// Save value if pointer valid
-	if (*data_long_p != NULL) {
+	if (data_long_p != NULL) {
 		*data_long_p = sign * data_long;
 	}
 
@@ -128,7 +172,7 @@ static bool acceptString (const char *string, char **string_p)
 	size_t len = strlen(string);
 
 	// Allocate copy
-	void *string_copy = malloc((len + 1) * sizeof(char));
+	char *string_copy = malloc((len + 1) * sizeof(char));
 
 	// Check copy outcome
 	if (string_copy == NULL) {
@@ -136,10 +180,17 @@ static bool acceptString (const char *string, char **string_p)
 	}
 
 	// Copy 
-	memcpy(string, string_copy, len * sizeof(char));
+	memcpy(string_copy, string, len * sizeof(char));
 
 	// Affix null char
 	string_copy[len] = '\0';
+
+	// Assign to given pointer (if valid)
+	if (string_p != NULL) {
+		*string_p = string_copy;
+	} else {
+		free(string_copy);
+	}
 
 	return true;
 }
@@ -150,7 +201,7 @@ static bool acceptString (const char *string, char **string_p)
  * @param collection A null terminated array of elements to search
  * @return Non-null element if found; else null
 \*/
-static xml_element_t *exists_element_with_key (char *key, xml_element_t **collection)
+static xml_element_t *exists_element_with_key (const char *key, xml_element_t **collection)
 {
 	xml_element_t *value = NULL;
 
@@ -185,7 +236,7 @@ bool element_has_key_value (xml_element_t *element, const char *key, ros_element
 {
 	ros_value_t temp = {0};
 	ros_value_t *value;
-	xml_element_t *element = NULL;
+	xml_element_t *e = NULL;
 	bool data_bool;
 	int64_t data_long;
 	char *data_string = NULL;
@@ -198,7 +249,7 @@ bool element_has_key_value (xml_element_t *element, const char *key, ros_element
 	}
 
 	// Check if the element exists
-	if ((element = exists_element_with_key(key, element->data->collection)) == NULL) {
+	if ((e = exists_element_with_key(key, element->data.collection)) == NULL) {
 		if (required) {
 			fprintf(stderr, "Element \"%s\" doesn't contain required element \"%s\"!\n",
 				element->tag, key);			
@@ -209,24 +260,24 @@ bool element_has_key_value (xml_element_t *element, const char *key, ros_element
 	// If the element exists, attempt to parse the expected type
 	switch (type) {
 		case TYPE_BOOL: {
-			if (!acceptBool(element->data->string, &data_bool)) {
+			if (!acceptBool(e->data.string, &data_bool)) {
 				goto bad_type;
 			}
 			temp.data.data_bool = data_bool;
 		}
 		break;
 		case TYPE_LONG: {
-			if (!acceptLong(element->data->string, &data_long)) {
+			if (!acceptLong(e->data.string, &data_long)) {
 				goto bad_type;
 			}
 			temp.data.data_long = data_long;
 		}
 		break;
 		case TYPE_STRING: {
-			if (!acceptString(element->data->string, &data_string)) {
+			if (!acceptString(e->data.string, &data_string)) {
 				goto bad_type;
 			}
-			temp.data.data_string = string;
+			temp.data.data_string = data_string;
 		}
 		break;
 	}
@@ -252,12 +303,19 @@ bad_type:
 
 	// Inform cause of mismatch
 	fprintf(stderr, "Element \"%s\" unable to parse \"%s\" as %s!\n",
-		element->tag, element->data->string, g_ros_element_type_str_tab[type]);
+		e->tag, e->data.string, g_ros_element_type_str_tab[type]);
 
 	// Reject match
 	return false;
 }
 
+/*\
+ * @brief Parses XML_STRING types from a given xml collection. Returns them
+ *        as an array of value types
+ * @note Assumes given collection is non-null
+ * @param collection The collection to parse
+ * @return NULL on error; else valid pointer to NULL-terminated value list
+\*/
 ros_value_t **parse_strings_from_xml_collection (xml_element_t **collection)
 {
 	ros_value_t **v, **value_set = NULL;
@@ -282,20 +340,21 @@ ros_value_t **parse_strings_from_xml_collection (xml_element_t **collection)
 	value_set[size] = NULL;
 
 	// Attempt to convert all elements, expecting a string type
-	for (off_t i = 0, p = collection; *p != NULL; ++p, ++i) {
+	for (p = collection; *p != NULL; ++p) {
 		ros_value_t *value = NULL;
 		char *string = NULL;
 
 		// Check name; assume topic
-		if (strcmp(p->tag, "topic") != 0) {
+		if (strcmp((*p)->tag, "topic") != 0) {
 			fprintf(stderr, "Expected element \"%s\" but \
-				found \"%s\" instead!\n", "topic", p->tag);
+				found \"%s\" instead!\n", "topic", (*p)->tag);
 			goto discard;
 		}
 
 		// Check type; expect string
-		if (p->type != XML_STRING) {
-			fprintf(stderr, "Exists element \"%s\" not of type string!\n");
+		if ((*p)->type != XML_STRING) {
+			fprintf(stderr, "Exists an element \"%s\" not of type string!\n",
+				(*p)->tag);
 			goto discard;
 		}
 
@@ -307,7 +366,7 @@ ros_value_t **parse_strings_from_xml_collection (xml_element_t **collection)
 		}
 
 		// Allocate a copy of the string 
-		if (!acceptString(p->data.string, &string)) {
+		if (!acceptString((*p)->data.string, &string)) {
 			fprintf(stderr, "%s:%d: Unable to allocate string copy!\n",
 				__FILE__, __LINE__);
 			goto discard;
@@ -315,10 +374,10 @@ ros_value_t **parse_strings_from_xml_collection (xml_element_t **collection)
 
 		// Configure the value
 		value->type = TYPE_STRING;
-		value->data->string = string;
+		value->data.data_string = string;
 
 		// Assign to array
-		value_set[i] = value;
+		value_set[offset++] = value;
 	}
 
 
@@ -343,6 +402,7 @@ discard:
  *******************************************************************************
 */
 
+
 void free_callback (ros_callback_t *callback_p)
 {
 
@@ -352,29 +412,66 @@ void free_callback (ros_callback_t *callback_p)
 	}
 
 	// Free fields
-	free_ros_value(name);
-	free_ros_value(wcet);
-	free_ros_value(prio);
-	free_ros_value(timer_period);
+	free_ros_value(callback_p->name);
+	free_ros_value(callback_p->wcet);
+	free_ros_value(callback_p->prio);
+	free_ros_value(callback_p->timer_period);
 
 	// Free subscribed topic list
-	if (topics_subscribed != NULL) {
-		for (ros_value_t **p = topics_subscribed; *p != NULL; ++p) {
+	if (callback_p->topics_subscribed != NULL) {
+		for (ros_value_t **p = callback_p->topics_subscribed; *p != NULL; ++p) {
 			free_ros_value(*p);
 		}
-		free_ros_value(topics_subscribed);
+		free(callback_p->topics_subscribed);
 	}
 
 	// Free publish topic list
-	if (topics_publish != NULL) {
-		for (ros_value_t **p = topics_publish; *p != NULL; ++p) {
+	if (callback_p->topics_publish != NULL) {
+		for (ros_value_t **p = callback_p->topics_publish; *p != NULL; ++p) {
 			free_ros_value(*p);
 		}
-		free_ros_value(topics_publish);
+		free(callback_p->topics_publish);
 	}
 
 	// Finally free the callback itself
 	free(callback_p);
+}
+
+
+void show_callback (ros_callback_t *callback_p)
+{
+
+	// Handle NULL pointer case
+	if (callback_p == NULL) {
+		printf("Nil\n");
+		return;
+	}
+
+	// Print main fields
+	printf("callback = {\n");
+	printf(".name = "); show_ros_value(callback_p->name);         putchar('\n');
+	printf(".wcet = "); show_ros_value(callback_p->wcet);         putchar('\n');
+	printf(".prio = "); show_ros_value(callback_p->prio);         putchar('\n');
+	printf(".timer_period = "); show_ros_value(callback_p->timer_period); putchar('\n');
+
+	// Print subscribed topics
+	if (callback_p->topics_subscribed != NULL) {
+		printf(".topics_subscribed = {\n");
+		for (ros_value_t **p = callback_p->topics_subscribed; *p != NULL; ++p) {
+			printf("\t"); show_ros_value(*p); printf("\n");
+		}
+		printf("}\n");
+	}
+
+	// Print publish topics
+	if (callback_p->topics_publish != NULL) {
+		printf(".topics_publish = {\n");
+		for (ros_value_t **p = callback_p->topics_publish; *p != NULL; ++p) {
+			printf("\t"); show_ros_value(*p); printf("\n");
+		}
+		printf("}\n");
+	}
+	printf("}\n");
 }
 
 void free_node (ros_node_t *node_p)
@@ -385,19 +482,43 @@ void free_node (ros_node_t *node_p)
 		return;
 	}
 
-	// Free name
-	free(node->name);
+	// Free name value
+	free_ros_value(node_p->name);
 
 	// Free individual callbacks, then the callback array
-	if (node->callbacks != NULL) {
-		for (ros_callback_t **p = node->callbacks; *p != NULL; ++p) {
+	if (node_p->callbacks != NULL) {
+		for (ros_callback_t **p = node_p->callbacks; *p != NULL; ++p) {
 			free_callback(*p);
 		}
-		free(node->callbacks);
+		free(node_p->callbacks);
 	}
 
 	// Finally free the node itself
 	free(node_p);
+}
+
+void show_node (ros_node_t *node_p)
+{
+
+	// Handle NULL pointer case
+	if (node_p == NULL) {
+		printf("Nil\n");
+		return;
+	}
+
+	// Print main fields
+	printf("node = {\n");
+	printf(".name = "); show_ros_value(node_p->name); putchar('\n');
+
+	// Print callbacks
+	if (node_p->callbacks != NULL) {
+		printf(".callbacks = {\n");
+		for (ros_callback_t **p = node_p->callbacks; *p != NULL; ++p) {
+			show_callback(*p);
+		}
+		printf("}\n");
+	}
+	printf("}\n");
 }
 
 void free_executor (ros_executor_t *executor_p)
@@ -406,6 +527,11 @@ void free_executor (ros_executor_t *executor_p)
 	// Ignore NULL pointer
 	if (executor_p == NULL) {
 		return;
+	}
+
+	// Free value
+	if (executor_p->id != NULL) {
+		free_ros_value(executor_p->id);
 	}
 
 	// Free node elements
@@ -420,16 +546,40 @@ void free_executor (ros_executor_t *executor_p)
 	free(executor_p);
 }
 
+void show_executor (ros_executor_t *executor_p)
+{
+
+	// Handle NULL pointer case
+	if (executor_p == NULL) {
+		printf("Nil\n");
+		return;
+	}
+
+	// Print main fields
+	printf("executor = {\n");
+	printf(".id = "); show_ros_value(executor_p->id); putchar('\n');
+
+	// Print nodes
+	if (executor_p->nodes != NULL) {
+		printf(".nodes = {\n");
+		for (ros_node_t **p = executor_p->nodes; *p != NULL; ++p) {
+			show_node(*p);
+		}
+		printf("}\n");
+	}
+	printf("}\n");
+}
+
 ros_callback_t *parse_ros_callback (xml_element_t *element)
 {
-	ros_callback_t callback_p = NULL;
+	ros_callback_t *callback_p = NULL;
 	ros_callback_t callback = {0};
 	ros_value_t *value = NULL;
 	xml_element_t *set_element = NULL;
 
 	// Check element name
 	if (strcmp(element->tag, "callback") != 0) {
-		fprintf(stderr, "Expected tag \"callback\", but got %s\n", 
+		fprintf(stderr, "Expected tag \"callback\", but got \"%s\"\n", 
 			element->tag);
 		return NULL;
 	}
@@ -442,7 +592,7 @@ ros_callback_t *parse_ros_callback (xml_element_t *element)
 	}
 
 	// Match name field
-	if (!element_has_key_value(element->data->collection, "name", TYPE_STRING, 
+	if (!element_has_key_value(element, "name", TYPE_STRING, 
 		&value, true)) {
 		return NULL;
 	} else {
@@ -450,7 +600,7 @@ ros_callback_t *parse_ros_callback (xml_element_t *element)
 	}
 
 	// Match wcet field
-	if (!element_has_key_value(element->data->collection, "wcet", TYPE_LONG, 
+	if (!element_has_key_value(element, "wcet", TYPE_LONG, 
 		&value, true)) {
 		return NULL;
 	} else {
@@ -458,7 +608,7 @@ ros_callback_t *parse_ros_callback (xml_element_t *element)
 	}
 
 	// Match prio field
-	if (!element_has_key_value(element->data->collection, "prio", TYPE_LONG, 
+	if (!element_has_key_value(element, "prio", TYPE_LONG, 
 		&value, true)) {
 		return NULL;
 	} else {
@@ -466,7 +616,7 @@ ros_callback_t *parse_ros_callback (xml_element_t *element)
 	}
 
 	// Match timer field
-	if (!element_has_key_value(element->data->collection, "timer", TYPE_LONG, 
+	if (!element_has_key_value(element, "timer", TYPE_LONG, 
 		&value, false)) {
 		return NULL;
 	} else {
@@ -475,7 +625,7 @@ ros_callback_t *parse_ros_callback (xml_element_t *element)
 
 	// Match optional subscribed topics
 	if ((set_element = exists_element_with_key("topics_subscribed", 
-		element->data->collection)) != NULL) {
+		element->data.collection)) != NULL) {
 		ros_value_t **value_set = NULL;
 
 		if ((value_set = parse_strings_from_xml_collection(
@@ -489,7 +639,7 @@ ros_callback_t *parse_ros_callback (xml_element_t *element)
 
 	// Match optional publish topics
 	if ((set_element = exists_element_with_key("topics_publish", 
-		element->data->collection)) != NULL) {
+		element->data.collection)) != NULL) {
 		ros_value_t **value_set = NULL;
 
 		if ((value_set = parse_strings_from_xml_collection(
@@ -539,12 +689,13 @@ ros_node_t *parse_ros_node (xml_element_t *element)
 	ros_node_t *node_p = NULL;
 	xml_element_t **e = NULL;
 	ros_callback_t **callbacks = NULL;
+	ros_value_t *value = NULL;
 	size_t size = 0;
 	off_t offset = 0;
 
 	// Expect element is called node
 	if (strcmp(element->tag, "node") != 0) {
-		fprintf(stderr, "Expected tag \"node\", but got %s\n", 
+		fprintf(stderr, "Expected tag \"node\", but got \"%s\"\n", 
 			element->tag);
 		return NULL;
 	}
@@ -557,14 +708,14 @@ ros_node_t *parse_ros_node (xml_element_t *element)
 	}
 
 	// Expect has a parameter with the name field
-	if (element->param == NULL || strcmp(element->param->key, "name") == 0) {
-		fprintf(stderr, "Expected parameter \"name\"! Either missing \
-			or mistyped!\n");
+	if (element->param == NULL || strcmp(element->param->key, "name") != 0) {
+		fprintf(stderr, "Expected parameter \"name\", but found \"%s\"!\n",
+			(element->param == NULL) ? "Nil" : element->param->key);
 		return NULL;
 	}
 
 	// Compute number of callbacks
-	for (e = element->data->collection; (*e) != NULL; ++e) {
+	for (e = element->data.collection; (*e) != NULL; ++e) {
 		size++;
 	}
 
@@ -579,7 +730,7 @@ ros_node_t *parse_ros_node (xml_element_t *element)
 	callbacks[size] = NULL;
 
 	// Parse elements into callbacks
-	for (e = element->data->collection; (*e) != NULL; ++e, ++offset) {
+	for (e = element->data.collection; (*e) != NULL; ++e, ++offset) {
 		ros_callback_t *callback;
 
 		// Try parsing as callback
@@ -593,26 +744,47 @@ ros_node_t *parse_ros_node (xml_element_t *element)
 	}
 
 	// Allocate and configure a node
-	if ((node_p = malloc(sizeof(ros_callback_t))) == NULL) {
+	if ((node_p = malloc(sizeof(ros_node_t))) == NULL) {
 		fprintf(stderr, "%s:%d: Unable to allocate memory for node!\n",
 			__FILE__, __LINE__);
 		goto discard;
 	}
 
+	// Allocate and configure a value for the name parameter
+	if ((value = malloc(sizeof(ros_value_t))) == NULL) {
+		fprintf(stderr, 
+			"%s:%d: Unable to allocate memory for parameter value!\n",
+			__FILE__, __LINE__);
+		goto discard;
+	}
+
+	// Zero out allocated value
+	memset(value, 0x0, sizeof(ros_value_t));
+
+	// Configure it as a string
+	value->type = TYPE_STRING;
+
 	// Copy the name of the node (parameter)
-	if (!acceptString(element->param->value, &(node_p->name))) {
+	if (!acceptString(element->param->value, &(value->data.data_string))) {
 		fprintf(stderr, "%s:%d: Unable to allocate copy of parameter value!\n",
 			__FILE__, __LINE__);
 		goto discard;
 	}
 
 	// Configure and return pointer
+	node_p->name = value;
 	node_p->callbacks = callbacks;
 
 	return node_p;
 
 discard:
 
+	// Free parameter value
+	if (value != NULL) {
+		free_ros_value(value);
+	}
+
+	// Free callbacks
 	if (callbacks != NULL) {
 		for (ros_callback_t **c = callbacks; *c != NULL; ++c) {
 			free_callback(*c);
@@ -620,8 +792,8 @@ discard:
 		free(callbacks);
 	}
 
+	// Free node
 	if (node_p != NULL) {
-		free(node_p->name);
 		free(node_p);
 	}
 
@@ -632,13 +804,14 @@ ros_executor_t *parse_ros_executor (xml_element_t *element)
 {
 	ros_executor_t *executor_p = NULL;
 	xml_element_t **e = NULL;
+	ros_value_t *value = NULL;
 	ros_node_t **nodes = NULL;
 	size_t size = 0;
 	off_t offset = 0;
 
 	// Expect element is called executor
 	if (strcmp(element->tag, "executor") != 0) {
-		fprintf(stderr, "Expected tag \"node\", but got %s\n", 
+		fprintf(stderr, "Expected tag \"executor\", but got \"%s\"\n", 
 			element->tag);
 		return NULL;
 	}
@@ -646,19 +819,19 @@ ros_executor_t *parse_ros_executor (xml_element_t *element)
 	// Expect element has type collection
 	if (element->type != XML_COLLECTION) {
 		fprintf(stderr, 
-			"Expected \"node\" to contain a collection, but got string\n");
+			"Expected \"executor\" to contain a collection, but got string\n");
 		return NULL;	
 	}
 
 	// Expect it has a parameter called id
-	if (element->param == NULL || strcmp(element->param->key, "id") == 0) {
-		fprintf(stderr, "Expected parameter \"id\"! Either missing \
-			or mistyped!\n");
+	if (element->param == NULL || strcmp(element->param->key, "id") != 0) {
+		fprintf(stderr, "Expected parameter \"id\", but found \"%s\"!\n",
+			(element->param == NULL) ? "Nil" : element->param->key);
 		return NULL;
 	}
 
 	// Compute number of nodes
-	for (e = element->data->collection; (*e) != NULL; ++e) {
+	for (e = element->data.collection; (*e) != NULL; ++e) {
 		size++;
 	}
 
@@ -673,7 +846,7 @@ ros_executor_t *parse_ros_executor (xml_element_t *element)
 	nodes[size] = NULL;
 
 	// Parse elements into callbacks
-	for (e = element->data->collection; (*e) != NULL; ++e, ++offset) {
+	for (e = element->data.collection; (*e) != NULL; ++e, ++offset) {
 		ros_node_t *node;
 
 		// Try parsing as node
@@ -693,17 +866,35 @@ ros_executor_t *parse_ros_executor (xml_element_t *element)
 		goto discard;
 	}
 
+	// Allocate a value for the ID of the executor
+	if ((value = malloc(sizeof(ros_value_t))) == NULL) {
+		fprintf(stderr, 
+			"%s:%d: Unable to allocate memory for parameter value!\n",
+			__FILE__, __LINE__);
+		goto discard;
+	}
+
+	// Zero out allocated value
+	memset(value, 0x0, sizeof(ros_value_t));
+
 	// Copy the identifier of the executor (parameter)
-	if (!acceptLong(element->param->value, &(executor_p->id))) {
+	if (!acceptLong(element->param->value, &(value->data.data_long))) {
 		fprintf(stderr, "Unable to parse integer ID from \"%s\" for \
 			executor parameter!\n", element->param->value);
 		goto discard;
 	}
 
 	// Configure and return pointer
+	executor_p->id = value;
 	executor_p->nodes = nodes;
 
+	return executor_p;
+
 discard:
+
+	if (value != NULL) {
+		free_ros_value(value);
+	}
 
 	if (nodes != NULL) {
 		for (ros_node_t **n = nodes; *n != NULL; ++n) {
