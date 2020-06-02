@@ -594,6 +594,8 @@ ros_callback_t *parse_ros_callback (xml_element_t *element)
 	// Match name field
 	if (!element_has_key_value(element, "name", TYPE_STRING, 
 		&value, true)) {
+		fprintf(stderr, "Expected \"%s\" in \"callback\" but not found!\n",
+			"name");
 		return NULL;
 	} else {
 		callback.name = value;
@@ -602,25 +604,29 @@ ros_callback_t *parse_ros_callback (xml_element_t *element)
 	// Match wcet field
 	if (!element_has_key_value(element, "wcet", TYPE_LONG, 
 		&value, true)) {
+		fprintf(stderr, "Expected \"%s\" in \"callback\" but not found!\n",
+			"wcet");
 		return NULL;
 	} else {
 		callback.wcet = value;
 	}
 
 	// Match prio field
-	if (!element_has_key_value(element, "prio", TYPE_LONG, 
-		&value, true)) {
+	if (element_has_key_value(element, "prio", TYPE_LONG, 
+		&value, true) == false) {
+		fprintf(stderr, "Expected \"%s\" in \"callback\" but not found!\n",
+			"prio");
 		return NULL;
 	} else {
 		callback.prio = value;
 	}
 
-	// Match timer field
-	if (!element_has_key_value(element, "timer", TYPE_LONG, 
-		&value, false)) {
-		return NULL;
-	} else {
+	// Match optional timer field
+	if (element_has_key_value(element, "timer", TYPE_LONG, 
+		&value, false) == true) {
 		callback.timer_period = value;
+	} else {
+		callback.timer_period = NULL;
 	}
 
 	// Match optional subscribed topics
@@ -730,8 +736,8 @@ ros_node_t *parse_ros_node (xml_element_t *element)
 	callbacks[size] = NULL;
 
 	// Parse elements into callbacks
-	for (e = element->data.collection; (*e) != NULL; ++e, ++offset) {
-		ros_callback_t *callback;
+	for (e = element->data.collection; (*e) != NULL; ++e) {
+		ros_callback_t *callback = NULL;
 
 		// Try parsing as callback
 		if ((callback = parse_ros_callback(*e)) == NULL) {
@@ -740,7 +746,7 @@ ros_node_t *parse_ros_node (xml_element_t *element)
 		}
 
 		// Assign pointer
-		callbacks[offset] = callback;
+		callbacks[offset++] = callback;
 	}
 
 	// Allocate and configure a node

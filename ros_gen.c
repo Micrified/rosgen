@@ -1,29 +1,4 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <stdbool.h>
-#include <unistd.h>
-#include <sys/types.h>
-#include <fcntl.h>
-#include <sys/stat.h>
-#include <errno.h>
-
-#include "ros_parse.h"
-#include "ros_semantics.h"
-
-/*
- *******************************************************************************
- *                             Symbolic Constants                              *
- *******************************************************************************
-*/
-
-
-// Format String: Terminal usage
-#define FMT_USAGE     "%s [<filename>]"
-
-// Format String: Error template
-#define FMT_ERR       "Err (%s:%d): "
-
+#include "ros_gen.h"
 
 /*
  *******************************************************************************
@@ -31,93 +6,298 @@
  *******************************************************************************
 */
 
-
-// Table: Mapping of exit codes to strings
-static const char const *g_error_str_tab[0xFF] = 
-{
-	[0] = "Ok",
-	[1] = "Invalid program parameters",
-	[2] = "Unable to open supplied file",
-	[3] = "Parse error",
-	[4] = "Configuration conflict",
-	[5] = "Unable to close supplied file"
+// Table: C++ libraries and headers to include
+static const char *g_include_cpp_statements[] = {
+	"<chrono>",
+	"<memory>",
+	"\"rclcpp/rclcpp.hpp\"",
+	"\"tutorial_interfaces/msg/num.hpp\""
 };
 
+// Table: C-style libraries and headers to include
+static const char *g_include_c_statements[] = {
+	"<time.h>"
+};
+
+// Table: C++ style using macros to use
+static const char *g_using_statements[] = {
+	"std::placeholders::_1"
+};
 
 /*
  *******************************************************************************
- *                            Function Definitions                             *
+ *                        External Function Definitions                        *
  *******************************************************************************
 */
 
 
-// Main program
-int main (int argc, char *argv[])
+/*\
+ * @brief Writes a callback method to the given file
+ * @note Assumes level three indentation for conetns
+ * @param file The file stream to write to
+ * @param callback_p The pointer to the callback to construct
+ * @return true if could be generated; else false
+\*/
+bool generate_callback (FILE *file, ros_callback_t *callback_p)
 {
-	bool is_file = false;
-	int err;
+
+	// Verify pointer
+	if (file == NULL || callback_p == NULL) {
+		return false;
+	}
+
+	// Extract callback fields
+	const char *name = callback_p->name->data.data_string;
+	int64_t wcet = callback_p->wcet->data.data_long;
+	int64_t prio = callback_p->prio->data.data_long;
+	int64_t timer_period = (callback_p->timer_period == NULL ? 
+		-1 : (callback_p->timer_period->data.data_long));
+
+	// Write method definition
+	fprintf(file, "\t\tvoid %s (const %s msg_recv) const {\n",
+		name, ROS_MSG_TYPE);
+
+	// Declare a message variable (to send)
+	fprintf(file, "\t\t\tauto msg_send = %s();\n", ROS_MSG_TYPE);
+
+	// Set the value of the message to the priority
+	fprintf(file, "\t\t\tmsg_send.num = %ld;\n\n", prio);
+
+	// Apply the WCET delay
+	int64_t seconds = wcet / (int64_t)1E9, nanoseconds = wcet % (int64_t)1E9;
+	fprintf(file, "\t\t\tstruct timespec delay = {%ld, %ld};\n",
+		seconds, nanoseconds);
+	fprintf(file, "\t\t\tnanosleep(&delay, NULL);\n\n");
+
+	// Publish to publishers
+	for (ros_value_t **t = callback_p->topics_publish; *t != NULL; ++t) {
+		const char *topic = (*t)->data.data_string;
+		fprintf(file, "\t\t\tpub_%s_%s->publish(msg_send);\n",
+			name, topic);
+	}
+
+	// End method
+	fprintf(file, "\t\t}\n");
+
+	return true;
+}
+
+/*\
+ * @brief Writes a node class to the given file
+ * @param file The file to write to
+ * @param node_p The pointer to the node to construct
+ * @return true if could be generated; else false
+\*/
+bool generate_node (FILE *file, ros_node_t *node_p)
+{
+	ros_callback_t **c = NULL, **callbacks = node_p->callbacks;
+	ros_value_t **s = NULL, **p = NULL;
+	const char *name = node_p->name->data.data_string;
+
+	// Check arguments 
+	if (file == NULL || node_p == NULL) {
+		return false;
+	}
+
+	// Construct class declaration for node
+	fprintf(file, "class %s : public rclcpp::Node\n", name);
+	fprintf(file, "{\n");
+	fprintf(file, "private:\n");
+
+	// For each callback generate the subscription variable
+	for (c = callbacks; *c != NULL; ++c) {
+		ros_value_t **subscriptions = (*c)->topics_subscribed;
+		for (s = subscriptions; *s != NULL; ++s) {
+			fprintf(file, 
+				"\t\trclcpp::Subscription<%s>::SharedPtr sub_%s_%s;\n",
+				ROS_MSG_TYPE,
+				(*c)->name->data.data_string, 
+				(*s)->data.data_string);
+		}
+	}
+
+	// For each callback generate the publisher variable
+	for (c = callbacks; *c != NULL; ++c) {
+		ros_value_t **publish = (*c)->topics_publish;
+		for (p = publish; *p != NULL; ++p) {
+			fprintf(file, "\t\trclcpp::Publisher<%s>::SharedPtr pub_%s_%s;\n",
+				ROS_MSG_TYPE, 
+				(*c)->name->data.data_string, 
+				(*p)->data.data_string);
+		}
+	}
+
+	// For each callback that is a timer generate the timer variable
+	for (c = callbacks; *c != NULL; ++c) {
+
+		// Skip elements without a timer field
+		if ((*c)->timer_period == NULL) {
+			continue;
+		}
+
+		// Generate the timer variable
+		fprintf(file, "\t\trclcpp::TimerBase::SharedPtr timer_%s;\n",
+			(*c)->name->data.data_string);
+	}
+
+	// Create all the callbacks
+	for (ros_callback_t **c = callbacks; *c != NULL; ++c) {
+		if (generate_callback(file, *c) == false) {
+			fprintf(stderr, "Unable to generate callback!\n");
+			return false;
+		}
+		fprintf(file, "\n");
+	}
+
+	// Declare public section
+	fprintf(file, "public:\n");
+
+	// Create the constructor
+	fprintf(file, "\t%s(): Node(\"%s\") {\n",
+		name, name);
+
+	// Initialize all subscriptions
+	for (c = callbacks; *c != NULL; ++c) {
+		ros_value_t **subscriptions = (*c)->topics_subscribed;
+		for (s = subscriptions; *s != NULL; ++s) {
+			fprintf(file, "\t\tsub_%s_%s = this->create_subscription<%s>(\"%s\", 10,\n\
+				std::bind(&%s::%s, this, _1));\n",
+				(*c)->name->data.data_string, 
+				(*s)->data.data_string,
+				ROS_MSG_TYPE,
+				(*s)->data.data_string,
+				name,
+				(*c)->name->data.data_string); 
+		}
+	}
+
+	// Separator
+	fprintf(file, "\n\n");
+
+	// Initialize all publishers
+	for (c = callbacks; *c != NULL; ++c) {
+		ros_value_t **publish = (*c)->topics_publish;
+		for (p = publish; *p != NULL; ++p) {
+			fprintf(file, "\t\tpub_%s_%s = this->create_publisher<%s>(\"%s\", 10);\n",
+				(*c)->name->data.data_string, 
+				(*p)->data.data_string,
+				ROS_MSG_TYPE,
+				(*p)->data.data_string); 
+		}
+	}
+
+	// Initialize all timers
+	for (ros_callback_t **c = callbacks; *c != NULL; ++c) {
+
+		// Skip callbacks without timers
+		if ((*c)->timer_period == NULL) {
+			continue;
+		}
+
+		// Get timer period
+		int64_t period_nsec = (*c)->timer_period->data.data_long;
+
+		// If it has a timer, initialize it
+		fprintf(file, "\t\t\ttimer_%s = this->create_wall_timer(" \
+			"ros::DurationBase::fromNSec(%ld), std::bind(&%s:%s, this));\n",
+			(*c)->name->data.data_string,
+			period_nsec,
+			name, 
+			(*c)->name->data.data_string);
+	}
+
+	fprintf(file, "\t};\n");
+
+	return true;
+}
+
+/*\
+ * @brief Creates a file and writes an executor to it
+ * @note Files are named using the executor parameters
+ * @param executor_p Pointer to executor to create file for
+ * @return true if could be generated; else false
+\*/
+bool generate_executor (ros_executor_t *executor_p)
+{
 	FILE *file = NULL;
-	parse_err_t parse_err;
-	xml_element_t *element_p;
+	char file_name[MAX_FILE_NAME_LENGTH];
+	size_t lines = 0;
+	ros_node_t *node = NULL;
 
-	// Arg check
-	if (argc > 2) {
-		fprintf(stderr, FMT_USAGE "\n", argv[0]);
-		err = 1;
-		goto end;
-	} else {
-		is_file = (argc == 2);
+	// Check parameters
+	if (executor_p == NULL) {
+		fprintf(stderr, "Cannot create executor from NULL pointer!\n");
+		return false;
 	}
 
-	// Input configuration
-	if (is_file) {
-		if ((file = fopen(argv[1], "r")) == NULL) {
-			fprintf(stderr, FMT_ERR "%s\n", __FILE__, __LINE__, strerror(errno));
-			err = 2;
-			goto end;
+	// Create the file name
+	if (snprintf(file_name, MAX_FILE_NAME_LENGTH, "executor_%ld.cpp", 
+		executor_p->id->data.data_long) >= MAX_FILE_NAME_LENGTH) {
+		fprintf(stderr, 
+			"Unable to create executor filename! Exceeds buffer capacity!\n");
+		return false;
+	}
+
+	// Create new file
+	if ((file = fopen(file_name, "w")) == NULL) {
+		fprintf(stderr, "Unable to create writable file/stream \"%s\"!\n", 
+			file_name);
+		return false;
+	}
+
+	// Put include statements for C++
+	lines = sizeof(g_include_cpp_statements) / sizeof(char *);
+	for (off_t i = 0; i < lines; ++i) {
+		fprintf(file, "#include %s\n", g_include_cpp_statements[i]);
+	}
+
+	// Put include statements for C
+	fprintf(file, "\nextern \"C\" {\n");
+	lines = sizeof(g_include_c_statements) / sizeof(char *);
+	for (off_t i = 0; i < lines; ++i) {
+		fprintf(file, "\t#include %s\n", g_include_c_statements[i]);
+	}
+	fprintf(file, "}\n");
+
+	// Put using statements
+	lines = sizeof(g_using_statements) / sizeof(char *);
+	for (off_t i = 0; i < lines; ++i) {
+		fprintf(file, "using %s;\n", g_using_statements[i]);
+	}
+
+	// Print the nodes
+	for (ros_node_t **n = executor_p->nodes; *n != NULL; ++n) {
+		fprintf(file, "\n");
+		if (generate_node(file, *n) == false) {
+			fprintf(stderr, "Unable to generate node \"%s\" - aborting!\n",
+				(*n)->name->data.data_string);
+			break;
 		}
+	}
+
+	// Print the main statement and opening brace
+	fprintf(file, "\n\nint main (int argc, char *argv[])\n");
+	fprintf(file, "{\n");
+
+	// Print initialization statements (only first node is used)
+	fprintf(file, "\trclcpp::init(argc, argv)\n");
+
+	// Extract name of first node as that to be initialized
+	if (executor_p->nodes == NULL || (node = executor_p->nodes[0]) == NULL) {
+		fprintf(stderr, "WARNING: No nodes configured for \"%s\"!\n", file_name);
 	} else {
-		file = stdin;
+		fprintf(file, "\trclcpp::spin(std::make_shared<%s>());\n",
+			node->name->data.data_string);
 	}
 
-	// Parse a single element from the file stream
-	while ((parse_err = parse_xml_element(file, &element_p)) == PARSE_OK) {
-		show_xml_element(element_p);
-		ros_callback_t *callback_p = NULL;
-		ros_node_t *node_p = NULL;
-		ros_executor_t *executor_p = NULL;
+	// Print shutdown API call
+	fprintf(file, "\trclcpp::shutdown();\n");
 
-		// Process the element (expecting only a callback for now)
-		if ((executor_p = parse_ros_executor(element_p)) == NULL)
-		{
-			fprintf(stderr, "Err: Unable to parse the executor!\n");
-		} else {
-			show_executor(executor_p);
-			free_executor(executor_p);
-		}
-		free_xml_element(element_p);
-		element_p = NULL;
-	}
+	// Print closing brace
+	fprintf(file, "}\n");
 
-	if (parse_err != PARSE_ERROR_BAD_START_TAG) {
-		fprintf(stderr, FMT_ERR "%s: %s\n", __FILE__, __LINE__, parse_err_str(parse_err),
-			get_err_context());
-		err = 3;
-		goto end;
-	} else {
-		fprintf(stdout, "At the end of the file!\n");
-	}
+	// Close the file
+	fclose(file); 
 
-	// Close the file stream
-	if ((err = fclose(file)) != 0) {
-		fprintf(stderr, FMT_ERR "%s\n", __FILE__, __LINE__, strerror(errno));
-		err = 5;
-		goto end;
-	}
-
-end:
-	if (err != 0) {
-		fprintf(stderr, "Exit Code %d: %s\n", err, g_error_str_tab[err]);
-	}
-	return err;
+	return true;
 }
