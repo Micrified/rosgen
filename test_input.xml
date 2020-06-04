@@ -1,0 +1,42 @@
+<executor id="1">
+	<node name="A">
+		<callback>
+			<name> sensor </name>
+			<wcet> 500000 </wcet>
+			<prio> 1 </prio>
+			<timer> 3000000000 </timer>
+			<topics_publish>
+			    <topic> topic_x </topic>
+			</topics_publish>
+			<topics_subscribed>
+			</topics_subscribed>
+		</callback>
+	</node>
+</executor>
+
+<executor id="2">
+	<node name="B">
+		<callback>
+			<name> actuator </name>
+			<wcet> 2000000 </wcet>
+			<prio> 3 </prio>
+			<timer> 1000000000 </timer>
+			<topics_publish>
+			    <topic> topic_x </topic>
+			</topics_publish>
+			<topics_subscribed>
+			</topics_subscribed>
+		</callback>
+
+		<callback>
+			<name> controller </name>
+			<wcet> 1000000 </wcet>
+			<prio> 2 </prio>
+			<topics_subscribed>
+				<topic> topic_x </topic>
+			</topics_subscribed>
+			<topics_publish>
+			</topics_publish>
+		</callback>
+	</node>
+</executor>
