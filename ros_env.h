@@ -9,6 +9,7 @@
 #include <ctype.h>
 #include <stdbool.h>
 
+#include "ros_semantics.h"
 
 /*
  *******************************************************************************
@@ -20,16 +21,10 @@
 /*\
  * @brief Generates a CMakeLists.txt file for the given project, executables,
  *        and dependencies
- * @param project_name Name of the project (should be same used to generate 
- *                     the ROS package). List should be NULL terminated
- * @param executables Name of all the executables that will be created
- *                    (i.e. the executors that will become executables)
- *                    List should be NULL terminated
- * @param dependencies The packages that this project depends on
+ * @param package_p The package to generate
  * @return true if the file was successfully created; else false
 \*/
-bool generate_cmake (const char *project_name, const char **executables, 
-	const char **dependencies);
+bool generate_cmake (ros_package_t *package_p);
 
 
 #endif

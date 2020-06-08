@@ -61,6 +61,14 @@ typedef struct {
 	ros_node_t **nodes;                // Null-terminated list of nodes
 } ros_executor_t;
 
+// Structure: Describing a ROS package configuration
+typedef struct {
+	ros_value_t *name;                 // Name of the ROS project/package
+	ros_value_t *msg_type;             // Message type to use
+	ros_value_t **dependencies;        // Dependencies for the CMakeLists
+	ros_executor_t **executors;        // Null-terminated list of executors
+} ros_package_t;
+
 
 /*
  *******************************************************************************
@@ -115,6 +123,21 @@ void free_executor (ros_executor_t *executor_p);
 void show_executor (ros_executor_t *executor_p);
 
 /*\
+ * @brief Free's the memory associated with a package
+ * @param package_p Pointer to the package to free
+ * @return None
+\*/
+void free_package (ros_package_t *package_p);
+
+/*\
+ * @brief Prints a package to STDOUT
+ * @note DEBUG function
+ * @param package_p Pointer to the package
+ * @return None
+\*/
+void show_package (ros_package_t *package_p);
+
+/*\
  * @brief Parses a callback from the given xml element. Performs semantic 
  *        checking
  * @param element The xml element to parse
@@ -138,5 +161,11 @@ ros_node_t *parse_ros_node (xml_element_t *element);
 \*/
 ros_executor_t *parse_ros_executor (xml_element_t *element);
 
+/*\
+ * @brief Parses a package configuration from the given xml element.
+ * @param element The xml element to parse
+ * @return NULL on error; else configured package
+\*/
+ros_package_t *parse_ros_package (xml_element_t *element);
 
 #endif

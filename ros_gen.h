@@ -11,6 +11,7 @@
 #include <stdbool.h>
 
 #include "ros_semantics.h"
+#include "ros_env.h"
 
 /*
  *******************************************************************************
@@ -54,6 +55,15 @@ bool generate_node (FILE *file, ros_node_t *node_p);
  * @return true if could be generated; else false
 \*/
 bool generate_executor (ros_executor_t *executor_p);
+
+
+/*\
+ * @brief Creates a ROS2 package
+ * @note Executors are converted to source files
+ * @param package_p Pointer to package to create project for
+ * @return true if could be generated; else false
+\*/
+bool generate_package (ros_package_t *package_p);
 
 
 #endif

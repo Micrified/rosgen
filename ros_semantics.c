@@ -195,6 +195,35 @@ static bool acceptString (const char *string, char **string_p)
 	return true;
 }
 
+
+/*\
+ * @brief Converts a string to a ros_value instance
+ * @note String is copied, and user responsible for value memory
+ * @param string String to be copied
+ * @return Pointer to value on success; else null
+\*/
+static ros_value_t *string_to_ros_value (const char *string)
+{
+	char *string_copy = NULL;
+	ros_value_t *value = NULL;
+
+	// Attempt to copy the string
+	if (acceptString(string, &string_copy) == false) {
+		return NULL;
+	}
+
+	// Allocate the value
+	if ((value = malloc(sizeof(ros_value_t))) == NULL) {
+		return NULL;
+	}
+
+	// Configure the value
+	value->type = TYPE_STRING;
+	value->data.data_string = string_copy;
+
+	return value;
+}
+
 /*\
  * @brief Returns a non-null element if it could be found within the collection
  * @param key The key to search for
@@ -313,10 +342,12 @@ bad_type:
  * @brief Parses XML_STRING types from a given xml collection. Returns them
  *        as an array of value types
  * @note Assumes given collection is non-null
+ * @param tag The tag to match contents on
  * @param collection The collection to parse
  * @return NULL on error; else valid pointer to NULL-terminated value list
 \*/
-ros_value_t **parse_strings_from_xml_collection (xml_element_t **collection)
+ros_value_t **parse_strings_from_xml_collection (const char *tag, 
+	xml_element_t **collection)
 {
 	ros_value_t **v, **value_set = NULL;
 	xml_element_t **p, *element = NULL;
@@ -345,9 +376,9 @@ ros_value_t **parse_strings_from_xml_collection (xml_element_t **collection)
 		char *string = NULL;
 
 		// Check name; assume topic
-		if (strcmp((*p)->tag, "topic") != 0) {
+		if (strcmp((*p)->tag, tag) != 0) {
 			fprintf(stderr, "Expected element \"%s\" but \
-				found \"%s\" instead!\n", "topic", (*p)->tag);
+				found \"%s\" instead!\n", tag, (*p)->tag);
 			goto discard;
 		}
 
@@ -570,6 +601,69 @@ void show_executor (ros_executor_t *executor_p)
 	printf("}\n");
 }
 
+void free_package (ros_package_t *package_p)
+{
+
+	// Handle NULL pointer case
+	if (package_p == NULL) {
+		return;
+	}
+
+	// Free name field if set
+	free_ros_value(package_p->name);
+
+	// Free message type if set
+	free_ros_value(package_p->msg_type);
+
+	// Free dependencies if set
+	if (package_p->dependencies != NULL) {
+		for (ros_value_t **p = package_p->dependencies; *p != NULL; ++p) {
+			free_ros_value(*p);
+		}
+		free(package_p->dependencies);
+	}
+
+	// Free executors
+	if (package_p->executors != NULL) {
+		for (ros_executor_t **e = package_p->executors; *e != NULL; ++e) {
+			free_executor(*e);
+		}
+		free(package_p->executors);
+	}
+
+	// Free package itself
+	free(package_p);
+}
+
+void show_package (ros_package_t *package_p)
+{
+
+	// Handle NULL pointer case
+	if (package_p == NULL) {
+		printf("Nil\n");
+		return;
+	}
+
+	// Print name, type, and dependencies
+	printf("package = {\n");
+	printf(".name = "); show_ros_value(package_p->name); putchar('\n');
+	printf(".msg_type = "); show_ros_value(package_p->msg_type); putchar('\n');
+	printf(".dependencies = {\n");
+	for (ros_value_t **p = package_p->dependencies; *p != NULL; ++p) {
+		putchar('\t');  show_ros_value(*p); putchar('\n');
+	}
+	printf("}\n");
+
+	// Put executors
+	printf("executors = {\n");
+	for (ros_executor_t **p = package_p->executors; *p != NULL; ++p) {
+		show_executor(*p);
+	}
+	printf("}\n");
+
+	printf("}\n");
+}
+
 ros_callback_t *parse_ros_callback (xml_element_t *element)
 {
 	ros_callback_t *callback_p = NULL;
@@ -634,7 +728,7 @@ ros_callback_t *parse_ros_callback (xml_element_t *element)
 		element->data.collection)) != NULL) {
 		ros_value_t **value_set = NULL;
 
-		if ((value_set = parse_strings_from_xml_collection(
+		if ((value_set = parse_strings_from_xml_collection("topic",
 			set_element->data.collection)) == NULL) {
 			fprintf(stderr, "Anomaly in \"topics_subscribed\" collection!\n");
 			goto discard;
@@ -648,7 +742,7 @@ ros_callback_t *parse_ros_callback (xml_element_t *element)
 		element->data.collection)) != NULL) {
 		ros_value_t **value_set = NULL;
 
-		if ((value_set = parse_strings_from_xml_collection(
+		if ((value_set = parse_strings_from_xml_collection("topic",
 			set_element->data.collection)) == NULL) {
 			fprintf(stderr, "Anomaly in \"topics_publish\" collection!\n");
 			goto discard;
@@ -912,6 +1006,139 @@ discard:
 	if (executor_p != NULL) {
 		free(executor_p);
 	}
+
+	return NULL;
+}
+
+ros_package_t *parse_ros_package (xml_element_t *element)
+{
+	ros_package_t package, *package_p = NULL;
+	xml_element_t *searched_element = NULL, **p = NULL;
+	ros_executor_t *executor, **executors = NULL;
+	size_t size = 2;
+	off_t offset = 0;
+
+	// Root element must be called package
+	if (strcmp(element->tag, "package") != 0) {
+		fprintf(stderr, "Expected base to have tag \"package\" "\
+			"but got \"%s\"\n", element->tag);
+		goto discard;
+	}
+
+	// Expect it has a parameter called name
+	if (element->param == NULL || 
+		strcmp(element->param->key, "name") != 0) {
+		fprintf(stderr, "Expected parameter \"name\" in tag \"package\"\n");
+		goto discard;
+	} else {
+		if ((package.name = string_to_ros_value(element->param->value)) 
+			== NULL) {
+			fprintf(stderr, "Unable to allocate copy of \"name\" value "\
+				"in \"package\"\n");
+			goto discard;			
+		}
+	}
+
+	// Locate the message-type field (checks this element is a collection too)
+	if (!element_has_key_value(element, "msg_type", TYPE_STRING, 
+		&(package.msg_type), true)) {
+		fprintf(stderr, "Expected element \"msg_type\" was not found!\n");
+		goto discard;
+	}
+
+	// Check if the dependencies exist
+	if ((searched_element = exists_element_with_key("dependencies", 
+		element->data.collection)) == NULL) {
+		fprintf(stderr, "Expected element \"dependencies\" was not found!\n");
+		goto discard;
+	}
+
+	// Check if dependencies is a collection
+	if (searched_element->type != XML_COLLECTION) {
+		fprintf(stderr, "Expected element \"dependencies\" to be of "\
+			"type XML_COLLECTION!\n");
+		goto discard;
+	}
+
+	// Copy the string collection
+	if ((package.dependencies = parse_strings_from_xml_collection("dependency",
+		searched_element->data.collection)) == NULL) {
+		fprintf(stderr, "Unable to parse collection \"dependencies\" within "\
+			"\"package\"!\n");
+		goto discard;
+	}
+
+	// Search for the executors 
+	if ((searched_element = exists_element_with_key("executors",
+		element->data.collection)) == NULL) {
+		fprintf(stderr, "Expected element \"executors\" was not found!\n");
+		goto discard;
+	}
+
+	// Expect executors to be of type collection
+	if (searched_element->type != XML_COLLECTION) {
+		fprintf(stderr, "Expected element \"executors\" to be of "\
+			"type XML_COLLECTION!\n");
+		goto discard;
+	}
+
+	// Parse the executors
+	for (p = searched_element->data.collection; *p != NULL; ++p) {
+
+		// If not allocated
+		if (executors == NULL) {
+			if ((executors = malloc((size + 1) * sizeof(ros_executor_t *))) 
+				== NULL) {
+				fprintf(stderr, "%s:%d: Unable to allocate memory for executor "\
+					"collection!\n", __FILE__, __LINE__);
+				goto discard;
+			}
+		}
+
+		// If more space required
+		if (offset >= (size - 1)) {
+			size *= 2;
+			if ((executors = realloc(executors, 
+				(size + 1) * sizeof(ros_executor_t *))) == NULL) {
+				fprintf(stderr, "%s:%d: Unable to reallocate memory for "\
+					"executor collection!\n", __FILE__, __LINE__);
+				goto discard;
+			}
+		}
+
+
+		// Parse executor
+		if ((executor = parse_ros_executor(*p)) == NULL) {
+			fprintf(stderr, "Unable to parse an executor within\
+			 \"executors\"!\n");
+			goto discard;
+		}
+
+		// Save executor
+		executors[offset++] = executor;
+	}
+
+	// Null terminate executors
+	executors[offset] = NULL;
+
+	// Assign executors
+	package.executors = executors;
+
+	// Allocate a copy of the package
+	if ((package_p = malloc(sizeof(ros_package_t))) == NULL) {
+		fprintf(stderr, "%s:%d: Unable to allocate memory for package!\n",
+			__FILE__, __LINE__);
+		goto discard;
+	}
+
+	// Configure the copy
+	memcpy(package_p, &package, sizeof(ros_package_t));
+
+	return package_p;
+
+discard:
+
+	free_package(&package);
 
 	return NULL;
 }

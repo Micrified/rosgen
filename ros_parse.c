@@ -106,7 +106,7 @@ parse_err_t parse_xml_string (FILE *file, char **string_p)
 	while (isspace((c = _fgetc(file))));
 
 	// Accept alphanumerics and underscores and dashes
-	while (isalnum(c) || c == '_' || c == '-') {
+	while (isalnum(c) || c == '_' || c == '-' || c == ':') {
 		if (string == NULL) {
 			string = malloc(size * sizeof(char));
 		}
@@ -344,25 +344,32 @@ parse_err_t parse_xml_element (FILE *file, xml_element_t **element_p)
 	xml_element_t *element = NULL;
 	xml_element_parameter_t *param = NULL;
 	off_t i = 0;
-
+	printf("parse_xml_element()\n");
 	// Accept opening tag
 	if ((err = parse_xml_tag(file, true, &tag_open, &param)) != PARSE_OK) {
+		printf("Discarding for bad tag!\n");
 		goto discard;
 	}
+
+	printf("tag = %s\n", tag_open);
 
 	// Try: accept string element
 	if (parse_xml_string(file, &string) == PARSE_OK) {
 		type = XML_STRING;
+		printf("Content: string = \"%s\"\n", string);
 		goto closing_tag;
 	} else {
 		free(string);
 	}
+
+
 
 	// Otherwise: Initialize a collection
 	type = XML_COLLECTION;
 	size_t collection_size = 2;
 	collection = malloc(collection_size * sizeof(xml_element_t *));
 
+	printf("Content: collection!\n");
 	// Accept elements
 	while (1) {
 
@@ -375,6 +382,7 @@ parse_err_t parse_xml_element (FILE *file, xml_element_t **element_p)
 
 		// Parse next element 
 		if ((err = parse_xml_element(file, &next_elem_p)) != PARSE_OK) {
+			printf("Received parse error on collection element: %d\n", err);
 			break;
 		} else {
 			collection[i] = next_elem_p;
@@ -388,6 +396,8 @@ parse_err_t parse_xml_element (FILE *file, xml_element_t **element_p)
 	if (err != PARSE_ERROR_BAD_START_TAG) {
 		goto discard;
 	}
+
+	printf("Assuming normal closure!\n");
 
 	collection[i] = NULL;
 
@@ -415,6 +425,8 @@ closing_tag:
 	// Otherwise allocate and assign element
 	if ((element = malloc(sizeof(xml_element_t))) == NULL) {
 		err = PARSE_ERROR_NO_MEMORY;
+		set_err("No memory!\n");
+		printf("no memory!\n");
 		goto discard;
 	} 
 
@@ -434,7 +446,7 @@ closing_tag:
 	// Discard the closing tag, since we only keep the opening one
 	free(tag_close);
 
-	return err;
+	return PARSE_OK;
 
 discard:
 	free(tag_open); 

@@ -333,3 +333,28 @@ bool generate_executor (ros_executor_t *executor_p)
 
 	return true;
 }
+
+bool generate_package (ros_package_t *package_p)
+{
+
+	// Check parameters
+	if (package_p == NULL) {
+		fprintf(stderr, "Cannot create package from NULL pointer!\n");
+		return false;
+	}
+
+	// Generate all executor files
+	for (ros_executor_t **p = package_p->executors; *p != NULL; ++p) {
+		if (generate_executor(*p) == false) {
+			fprintf(stderr, "Unable to generate an executor!\n");
+			return false;
+		}
+	}
+
+	// Generate the makefile
+	if (generate_cmake(package_p) == false) {
+		fprintf(stderr, "Unable to generate the CMakeLists.txt file!\n");
+	}
+
+	return true;
+}
