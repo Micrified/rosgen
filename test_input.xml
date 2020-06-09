@@ -1,9 +1,9 @@
 <package name="automatic">
-	<msg_type> tutorial_interfaces::msg::Num </msg_type>
+	<msg_type include="std_msgs/msg/int64.hpp"> std_msgs::msg::Int64 </msg_type>
 	<dependencies>
 		<dependency> ament_cmake </dependency>
 		<dependency> rclcpp </dependency>
-		<dependency> tutorial_interfaces </dependency>
+		<dependency> std_msgs </dependency>
 	</dependencies>
 	<executors>
 		<executor id="1">

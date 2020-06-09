@@ -11,7 +11,6 @@ static const char *g_include_cpp_statements[] = {
 	"<chrono>",
 	"<memory>",
 	"\"rclcpp/rclcpp.hpp\"",
-	"\"tutorial_interfaces/msg/num.hpp\""
 };
 
 // Table: C-style libraries and headers to include
@@ -24,22 +23,18 @@ static const char *g_using_statements[] = {
 	"std::placeholders::_1"
 };
 
+
 /*
  *******************************************************************************
  *                        External Function Definitions                        *
  *******************************************************************************
 */
 
-
-/*\
- * @brief Writes a callback method to the given file
- * @note Assumes level three indentation for conetns
- * @param file The file stream to write to
- * @param callback_p The pointer to the callback to construct
- * @return true if could be generated; else false
-\*/
-bool generate_callback (FILE *file, ros_callback_t *callback_p)
+bool generate_callback (FILE *file, ros_callback_t *callback_p,
+	ros_package_t *package_p)
 {
+	// The message type pointer
+	const char *msg_type = package_p->msg_type->data.data_string;
 
 	// Verify pointer
 	if (file == NULL || callback_p == NULL) {
@@ -58,7 +53,7 @@ bool generate_callback (FILE *file, ros_callback_t *callback_p)
 		fprintf(file, "\t\tvoid %s () {\n", name);
 	} else {
 		fprintf(file, "\t\tvoid %s (const %s::SharedPtr msg_recv) const {\n",
-			name, ROS_MSG_TYPE);
+			name, msg_type);
 		fprintf(file, "\t\t\t(void)msg_recv;\n");
 	}
 
@@ -68,23 +63,29 @@ bool generate_callback (FILE *file, ros_callback_t *callback_p)
 		seconds, nanoseconds);
 	fprintf(file, "\t\t\tnanosleep(&delay, NULL);\n\n");
 
+	// Call the custom function
+	fprintf(file, 
+		"\t\t\tauto msg_send = %s(%s, %s, %s, \"%s\", %ld, %ld, %s);\n",
+		ROS_CALLBACK_SIGNATURE,
+		(timer_period == -1 ? "msg_recv" : "NULL"), 
+		"this->data_executor_id",
+		"this->data_name", name, prio, wcet, 
+		(timer_period == -1 ? "false" : "true"));
+
 	// Return now if not publishing since no need to make message
 	if (callback_p->topics_publish == NULL || 
 		callback_p->topics_publish[0] == NULL) {
 		goto end;
 	}
 
-	// Declare a message variable (to send)
-	fprintf(file, "\t\t\tauto msg_send = %s();\n", ROS_MSG_TYPE);
-
-	// Set the value of the message to the priority
-	fprintf(file, "\t\t\tmsg_send.num = %ld;\n\n", prio);
-
 	// Publish to publishers
 	for (ros_value_t **t = callback_p->topics_publish; *t != NULL; ++t) {
 		const char *topic = (*t)->data.data_string;
-		fprintf(file, "\t\t\tpub_%s_%s->publish(msg_send);\n",
+		fprintf(file, "\t\t\tif (msg_send != NULL) {\n");
+		fprintf(file, "\t\t\t\tpub_%s_%s->publish(*msg_send);\n",
 			name, topic);
+		fprintf(file, "\t\t\t\tdelete msg_send;\n");
+		fprintf(file, "\t\t\t}\n");
 	}
 end:
 	// End method
@@ -93,17 +94,15 @@ end:
 	return true;
 }
 
-/*\
- * @brief Writes a node class to the given file
- * @param file The file to write to
- * @param node_p The pointer to the node to construct
- * @return true if could be generated; else false
-\*/
-bool generate_node (FILE *file, ros_node_t *node_p)
+bool generate_node (FILE *file, ros_node_t *node_p,
+	ros_package_t *package_p, int64_t executor_id)
 {
 	ros_callback_t **c = NULL, **callbacks = node_p->callbacks;
 	ros_value_t **s = NULL, **p = NULL;
 	const char *name = node_p->name->data.data_string;
+
+	// The message type pointer
+	const char *msg_type = package_p->msg_type->data.data_string;
 
 	// Check arguments 
 	if (file == NULL || node_p == NULL) {
@@ -115,13 +114,18 @@ bool generate_node (FILE *file, ros_node_t *node_p)
 	fprintf(file, "{\n");
 	fprintf(file, "private:\n");
 
+	// Generate default fields (name + executor ID)
+	fprintf(file, "\t\tchar const *data_name = \"%s\";\n", name);
+	fprintf(file, "\t\tint64_t data_executor_id = %ld;\n", 
+		executor_id);
+
 	// For each callback generate the subscription variable
 	for (c = callbacks; *c != NULL; ++c) {
 		ros_value_t **subscriptions = (*c)->topics_subscribed;
 		for (s = subscriptions; *s != NULL; ++s) {
 			fprintf(file, 
 				"\t\trclcpp::Subscription<%s>::SharedPtr sub_%s_%s;\n",
-				ROS_MSG_TYPE,
+				msg_type,
 				(*c)->name->data.data_string, 
 				(*s)->data.data_string);
 		}
@@ -132,7 +136,7 @@ bool generate_node (FILE *file, ros_node_t *node_p)
 		ros_value_t **publish = (*c)->topics_publish;
 		for (p = publish; *p != NULL; ++p) {
 			fprintf(file, "\t\trclcpp::Publisher<%s>::SharedPtr pub_%s_%s;\n",
-				ROS_MSG_TYPE, 
+				msg_type, 
 				(*c)->name->data.data_string, 
 				(*p)->data.data_string);
 		}
@@ -153,7 +157,7 @@ bool generate_node (FILE *file, ros_node_t *node_p)
 
 	// Create all the callbacks
 	for (ros_callback_t **c = callbacks; *c != NULL; ++c) {
-		if (generate_callback(file, *c) == false) {
+		if (generate_callback(file, *c, package_p) == false) {
 			fprintf(stderr, "Unable to generate callback!\n");
 			return false;
 		}
@@ -175,7 +179,7 @@ bool generate_node (FILE *file, ros_node_t *node_p)
 				std::bind(&%s::%s, this, _1));\n",
 				(*c)->name->data.data_string, 
 				(*s)->data.data_string,
-				ROS_MSG_TYPE,
+				msg_type,
 				(*s)->data.data_string,
 				name,
 				(*c)->name->data.data_string); 
@@ -189,7 +193,7 @@ bool generate_node (FILE *file, ros_node_t *node_p)
 			fprintf(file, "\t\tpub_%s_%s = this->create_publisher<%s>(\"%s\", 10);\n",
 				(*c)->name->data.data_string, 
 				(*p)->data.data_string,
-				ROS_MSG_TYPE,
+				msg_type,
 				(*p)->data.data_string); 
 		}
 	}
@@ -223,18 +227,18 @@ bool generate_node (FILE *file, ros_node_t *node_p)
 	return true;
 }
 
-/*\
- * @brief Creates a file and writes an executor to it
- * @note Files are named using the executor parameters
- * @param executor_p Pointer to executor to create file for
- * @return true if could be generated; else false
-\*/
-bool generate_executor (ros_executor_t *executor_p)
+
+bool generate_executor (ros_executor_t *executor_p, 
+	ros_package_t *package_p)
 {
 	FILE *file = NULL;
 	char file_name[MAX_FILE_NAME_LENGTH];
 	size_t lines = 0;
 	ros_node_t *node = NULL, **nodes = NULL;
+	int64_t executor_id = -1;
+
+	// Extract pointer to include statement for msg_type
+	const char *msg_include = package_p->msg_include->data.data_string; 
 
 	// Check parameters
 	if (executor_p == NULL) {
@@ -242,9 +246,12 @@ bool generate_executor (ros_executor_t *executor_p)
 		return false;
 	}
 
+	// Extract executor ID
+	executor_id = executor_p->id->data.data_long;
+
 	// Create the file name
 	if (snprintf(file_name, MAX_FILE_NAME_LENGTH, "executor_%ld.cpp", 
-		executor_p->id->data.data_long) >= MAX_FILE_NAME_LENGTH) {
+		executor_id) >= MAX_FILE_NAME_LENGTH) {
 		fprintf(stderr, 
 			"Unable to create executor filename! Exceeds buffer capacity!\n");
 		return false;
@@ -257,11 +264,18 @@ bool generate_executor (ros_executor_t *executor_p)
 		return false;
 	}
 
-	// Put include statements for C++
+	// Put standard include statements for C++
 	lines = sizeof(g_include_cpp_statements) / sizeof(char *);
 	for (off_t i = 0; i < lines; ++i) {
 		fprintf(file, "#include %s\n", g_include_cpp_statements[i]);
 	}
+
+	// Put down the include statement for the message (assumes C++)
+	fprintf(file, "#include \"%s\"\n", msg_include);
+
+	// Put down the include statement for the callback file
+	fprintf(file, "#include \"%s/%s.hpp\"\n", 
+		package_p->name->data.data_string, ROS_CALLBACK_FILENAME);
 
 	// Put include statements for C
 	fprintf(file, "\nextern \"C\" {\n");
@@ -280,7 +294,7 @@ bool generate_executor (ros_executor_t *executor_p)
 	// Print the nodes
 	for (ros_node_t **n = executor_p->nodes; *n != NULL; ++n) {
 		fprintf(file, "\n");
-		if (generate_node(file, *n) == false) {
+		if (generate_node(file, *n, package_p, executor_id) == false) {
 			fprintf(stderr, "Unable to generate node \"%s\" - aborting!\n",
 				(*n)->name->data.data_string);
 			break;
@@ -345,7 +359,7 @@ bool generate_package (ros_package_t *package_p)
 
 	// Generate all executor files
 	for (ros_executor_t **p = package_p->executors; *p != NULL; ++p) {
-		if (generate_executor(*p) == false) {
+		if (generate_executor(*p, package_p) == false) {
 			fprintf(stderr, "Unable to generate an executor!\n");
 			return false;
 		}
@@ -354,6 +368,21 @@ bool generate_package (ros_package_t *package_p)
 	// Generate the makefile
 	if (generate_cmake(package_p) == false) {
 		fprintf(stderr, "Unable to generate the CMakeLists.txt file!\n");
+	}
+
+	// Generate the source and header file
+	if (generate_callback_header_file(package_p) == false) {
+		fprintf(stderr, "Unable to generate callback header file!\n");
+	}
+
+	// Generate the source and header file
+	if (generate_callback_source_file(package_p) == false) {
+		fprintf(stderr, "Unable to generate callback source file!\n");
+	}
+
+	// Generate the package description 
+	if (generate_package_xml(package_p) == false) {
+		fprintf(stderr, "Unable to generate package.xml file!\n");
 	}
 
 	return true;

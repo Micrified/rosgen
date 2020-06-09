@@ -615,6 +615,9 @@ void free_package (ros_package_t *package_p)
 	// Free message type if set
 	free_ros_value(package_p->msg_type);
 
+	// Free include statement if set
+	free_ros_value(package_p->msg_include);
+
 	// Free dependencies if set
 	if (package_p->dependencies != NULL) {
 		for (ros_value_t **p = package_p->dependencies; *p != NULL; ++p) {
@@ -648,6 +651,7 @@ void show_package (ros_package_t *package_p)
 	printf("package = {\n");
 	printf(".name = "); show_ros_value(package_p->name); putchar('\n');
 	printf(".msg_type = "); show_ros_value(package_p->msg_type); putchar('\n');
+	printf(".include = "); show_ros_value(package_p->msg_include); putchar('\n');
 	printf(".dependencies = {\n");
 	for (ros_value_t **p = package_p->dependencies; *p != NULL; ++p) {
 		putchar('\t');  show_ros_value(*p); putchar('\n');
@@ -1040,9 +1044,40 @@ ros_package_t *parse_ros_package (xml_element_t *element)
 	}
 
 	// Locate the message-type field (checks this element is a collection too)
-	if (!element_has_key_value(element, "msg_type", TYPE_STRING, 
-		&(package.msg_type), true)) {
+	if ((searched_element = exists_element_with_key("msg_type",
+		element->data.collection)) == NULL) {
 		fprintf(stderr, "Expected element \"msg_type\" was not found!\n");
+		goto discard;
+	}
+
+	// Check that the type is of type-string
+	if (searched_element->type != XML_STRING) {
+		fprintf(stderr, "Expected element \"msg_type\" to be of type "\
+			"string!\n");
+		goto discard;
+	}
+
+	// Copy the contents to the package message type field as a value
+	if ((package.msg_type = string_to_ros_value(
+		searched_element->data.string)) == NULL) {
+		fprintf(stderr, "%s:%d: Unable to allocate memory for copy of "\
+			"message type!\n", __FILE__, __LINE__);
+		goto discard;
+	}
+
+	// Verify that there exists a key-value for the msg-type field
+	if (searched_element->param == NULL || 
+		strcmp(searched_element->param->key, "include") != 0) {
+		fprintf(stderr, "Element \"msg-type\" requires parameter " \
+			"\"include\": Either missing or incorrect!\n");
+		goto discard;
+	}
+
+	// Copy the value in
+	if ((package.msg_include = string_to_ros_value(
+		searched_element->param->value)) == NULL) {
+		fprintf(stderr, "%s:%d: Unable to allocate memory for copy of "\
+			"parameter value!\n", __FILE__, __LINE__);
 		goto discard;
 	}
 

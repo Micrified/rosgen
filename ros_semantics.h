@@ -65,6 +65,7 @@ typedef struct {
 typedef struct {
 	ros_value_t *name;                 // Name of the ROS project/package
 	ros_value_t *msg_type;             // Message type to use
+	ros_value_t *msg_include;          // Include statement to use
 	ros_value_t **dependencies;        // Dependencies for the CMakeLists
 	ros_executor_t **executors;        // Null-terminated list of executors
 } ros_package_t;
