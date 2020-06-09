@@ -10,7 +10,7 @@ A ROS2 program generator. Program input is accepted from either:
 Compile this as a normal C++ program, as shown below:
 
 ```
-gcc -o rosgen ros_synth.c ros_gen.c ros_parse.c ros_semantics.c
+ gcc -o rosgen ros_env.c ros_gen.c ros_parse.c ros_semantics.c ros_synth.c
 ```
 
 ## Input Format
