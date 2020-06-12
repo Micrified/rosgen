@@ -75,7 +75,7 @@ int main (int argc, char *argv[])
 
 	// Input file
 	if (is_file) {
-		if ((input_file = fopen(argv[2], "r")) == NULL) {
+		if ((input_file = fopen(argv[1], "r")) == NULL) {
 			fprintf(stderr, FMT_ERR "%s\n", __FILE__, __LINE__, strerror(errno));
 			err = 2;
 			goto end;
