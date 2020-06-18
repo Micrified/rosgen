@@ -60,10 +60,4 @@ Simply add code to `on_callback.cpp` and this will be run by all callbacks. You 
 
 ## Output
 
-This program only outputs executable files along with the `CMakeLists.txt` and `package.xml` file. You should use the `pkg create --build-type ament_cmake <package_name>` command from the ROS2 CLI to create your project. Then: 
-
-1. Put all your executables in `src/<package_name>/src/`
-2. Put all your headers in `src/<package_name>/include/<package_name>/`
-3. Put the `CMakeLists` and `package.xml` in `src/<package_name>/`
-
 Note that these files are somewhat crudely generated and may need tweaking if additional packages and libraries are involved. This tool is meant for rapid program generation and not really as a flexible tool for building real ROS2 projects.
