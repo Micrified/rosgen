@@ -56,11 +56,13 @@ bool generate_node (FILE *file, ros_node_t *node_p,
 /*\
  * @brief Creates a file and writes an executor to it
  * @note Files are named using the executor parameters
+ * @param path Directory in which generated files will be put
  * @param executor_p Pointer to executor to create file for
  * @param package_p Pointer to package with metadata
  * @return true if could be generated; else false
 \*/
-bool generate_executor (ros_executor_t *executor_p, 
+bool generate_executor (const char *path, 
+	ros_executor_t *executor_p, 
 	ros_package_t *package_p);
 
 

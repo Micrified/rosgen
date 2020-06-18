@@ -228,7 +228,8 @@ bool generate_node (FILE *file, ros_node_t *node_p,
 }
 
 
-bool generate_executor (ros_executor_t *executor_p, 
+bool generate_executor (const char *path, 
+	ros_executor_t *executor_p, 
 	ros_package_t *package_p)
 {
 	FILE *file = NULL;
@@ -250,8 +251,8 @@ bool generate_executor (ros_executor_t *executor_p,
 	executor_id = executor_p->id->data.data_long;
 
 	// Create the file name
-	if (snprintf(file_name, MAX_FILE_NAME_LENGTH, "executor_%ld.cpp", 
-		executor_id) >= MAX_FILE_NAME_LENGTH) {
+	if (snprintf(file_name, MAX_FILE_NAME_LENGTH, "%s/executor_%ld.cpp", 
+		path, executor_id) >= MAX_FILE_NAME_LENGTH) {
 		fprintf(stderr, 
 			"Unable to create executor filename! Exceeds buffer capacity!\n");
 		return false;
@@ -350,38 +351,64 @@ bool generate_executor (ros_executor_t *executor_p,
 
 bool generate_package (ros_package_t *package_p)
 {
+	const char *create_path = NULL, *package_name = NULL;
 
 	// Check parameters
 	if (package_p == NULL) {
 		fprintf(stderr, "Cannot create package from NULL pointer!\n");
 		return false;
+	} else {
+		package_name = package_p->name->data.data_string;
 	}
+
+	// Generate the directories
+	if (generate_directories(package_p) == false) {
+		fprintf(stderr, "Unable to generate required directories!\n");
+
+		// Abort as sub-directories needed
+		return false;
+	}
+
+	// Create the path for the executors
+	if ((create_path = makeStaticPath("%s/src", package_name)) == NULL) {
+		fprintf(stderr, "%s:%d: Unable to create path for executors " \
+			"(the path is too long!)\n", __FILE__, __LINE__);
+	}
+
+	printf("The executors will be placed along path: \"%s\"\n", create_path);
 
 	// Generate all executor files
 	for (ros_executor_t **p = package_p->executors; *p != NULL; ++p) {
-		if (generate_executor(*p, package_p) == false) {
+		if (generate_executor(create_path, *p, package_p) == false) {
 			fprintf(stderr, "Unable to generate an executor!\n");
 			return false;
 		}
 	}
 
 	// Generate the makefile
-	if (generate_cmake(package_p) == false) {
+	if (generate_cmake(package_name, package_p) == false) {
 		fprintf(stderr, "Unable to generate the CMakeLists.txt file!\n");
 	}
 
-	// Generate the source and header file
-	if (generate_callback_header_file(package_p) == false) {
-		fprintf(stderr, "Unable to generate callback header file!\n");
-	}
-
-	// Generate the source and header file
-	if (generate_callback_source_file(package_p) == false) {
+	// Generate the source file
+	if (generate_callback_source_file(create_path, package_p) == false) {
 		fprintf(stderr, "Unable to generate callback source file!\n");
 	}
 
+	// Adjust the create_path for the header file
+	if ((create_path = makeStaticPath("%s/include/%s", package_name, 
+		package_name)) == NULL) {
+		fprintf(stderr, "%s:%d: Unable to create path for callback header " \
+			"(the path is too long!)\n", __FILE__, __LINE__);
+	}
+
+	// Generate the header file
+	if (generate_callback_header_file(create_path, package_p) == false) {
+		fprintf(stderr, "Unable to generate callback header file!\n");
+	}
+
 	// Generate the package description 
-	if (generate_package_xml(package_p) == false) {
+	if (generate_package_xml(package_name, package_p) == false) {
 		fprintf(stderr, "Unable to generate package.xml file!\n");
 	}
 

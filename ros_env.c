@@ -2,16 +2,74 @@
 
 /*
  *******************************************************************************
+ *                              Global Variables                               *
+ *******************************************************************************
+*/
+
+// Path buffer (non-reentrant)
+char g_path_buffer[MAX_FILE_PATH_SIZE];
+
+/*
+ *******************************************************************************
  *                            Function Definitions                             *
  *******************************************************************************
 */
 
-bool generate_callback_header_file (ros_package_t *package_p)
+const char *makeStaticPath (const char *fmt, ...)
+{
+	va_list ap;
+	const char *p, *string_p;
+	off_t offset = 0;
+
+	// Write all elements to the global path buffer
+	va_start(ap, fmt);
+	for (p = fmt; *p; ++p) {
+
+		// Return NULL if path limit exceeded
+		if (offset >= (MAX_FILE_PATH_SIZE - 1)) {
+			return NULL;
+		}
+
+		// Ignore non-tokens
+		if (*p != '%') {
+			g_path_buffer[offset++] = *p;
+			continue;
+		} else {
+			++p;
+		}
+
+		// Must be the string token
+		if (*p != 's') {
+			fprintf(stderr,"%s:%d: Non-string tokens not supported!\n",
+				__FILE__, __LINE__);
+			return NULL;
+		}
+
+		// Copy in string
+		for (string_p = va_arg(ap, char *); *string_p; ++string_p) {
+			g_path_buffer[offset++] = *string_p;
+		}
+
+	}
+
+	// Add null-character
+	g_path_buffer[offset] = '\0';
+
+	// Clean up arguments
+	va_end(ap);
+
+	// Return pointer
+	return g_path_buffer;
+}
+
+
+bool generate_callback_header_file (const char *path, ros_package_t *package_p)
 {
 	FILE *header_file = NULL;
 	const char *msg_type = NULL;
 	const char *msg_include = NULL;
 	const char *filename = ROS_CALLBACK_FILENAME;
+	char file_name[MAX_FILE_PATH_SIZE];
 
 	// Parameter check
 	if (package_p == NULL) {
@@ -22,8 +80,17 @@ bool generate_callback_header_file (ros_package_t *package_p)
 		msg_include = package_p->msg_include->data.data_string;
 	}
 
+	// Create the file name
+	if (snprintf(file_name, MAX_FILE_PATH_SIZE, "%s/%s.hpp",
+		path, ROS_CALLBACK_FILENAME) >= MAX_FILE_PATH_SIZE) {
+		fprintf(stderr,
+			"Unable to create " ROS_CALLBACK_FILENAME " filename! Exceeds buffer "\
+			"capacity!\n");
+		return false;
+	}
+
 	// Create the header file
-	if ((header_file = fopen(ROS_CALLBACK_FILENAME ".hpp", "w")) == NULL) {
+	if ((header_file = fopen(file_name, "w")) == NULL) {
 		fprintf(stderr, "Unable to create writable file/stream "\
 			ROS_CALLBACK_FILENAME ".hpp\n");
 		return false;
@@ -68,11 +135,12 @@ bool generate_callback_header_file (ros_package_t *package_p)
 	return true;
 }
 
-bool generate_callback_source_file (ros_package_t *package_p)
+bool generate_callback_source_file (const char *path, ros_package_t *package_p)
 {
 	FILE *source_file = NULL;
 	const char *msg_type = NULL;
 	const char *filename = ROS_CALLBACK_FILENAME;
+	char file_name[MAX_FILE_PATH_SIZE];
 
 	// Parameter check
 	if (package_p == NULL) {
@@ -82,8 +150,17 @@ bool generate_callback_source_file (ros_package_t *package_p)
 		msg_type = package_p->msg_type->data.data_string;
 	}
 
+	// Create the file name
+	if (snprintf(file_name, MAX_FILE_PATH_SIZE, "%s/%s.cpp",
+		path, ROS_CALLBACK_FILENAME) >= MAX_FILE_PATH_SIZE) {
+		fprintf(stderr,
+			"Unable to create " ROS_CALLBACK_FILENAME " filename! Exceeds buffer "\
+			"capacity!\n");
+		return false;
+	}
+
 	// Create the source file
-	if ((source_file = fopen(ROS_CALLBACK_FILENAME ".cpp", "w")) == NULL) {
+	if ((source_file = fopen(file_name, "w")) == NULL) {
 		fprintf(stderr, "Unable to create writable file/stream "\
 			ROS_CALLBACK_FILENAME ".cpp\n");
 		return false;
@@ -113,11 +190,12 @@ bool generate_callback_source_file (ros_package_t *package_p)
 	return true;
 }
 
-bool generate_package_xml (ros_package_t *package_p)
+bool generate_package_xml (const char *path, ros_package_t *package_p)
 {
 	FILE *file = NULL;
 	const char *project_name;
 	ros_value_t **dependencies = NULL;
+	char file_name[MAX_FILE_PATH_SIZE];
 
 	// Parameter check
 	if (package_p == NULL) {
@@ -128,8 +206,17 @@ bool generate_package_xml (ros_package_t *package_p)
 		dependencies = package_p->dependencies;
 	}
 
+	// Create the file name
+	if (snprintf(file_name, MAX_FILE_PATH_SIZE, "%s/package.xml",
+		path) >= MAX_FILE_PATH_SIZE) {
+		fprintf(stderr,
+			"Unable to create package.xml filename! Exceeds buffer "\
+			"capacity!\n");
+		return false;
+	}
+
 	// Create the file
-	if ((file = fopen("package.xml", "w")) == NULL) {
+	if ((file = fopen(file_name, "w")) == NULL) {
 		fprintf(stderr, "Unable to create writable file/stream \
 			package.xml\n");
 		return false;
@@ -171,12 +258,13 @@ bool generate_package_xml (ros_package_t *package_p)
 	return true;
 }
 
-bool generate_cmake (ros_package_t *package_p)
+bool generate_cmake (const char *path, ros_package_t *package_p)
 {
 	FILE *file = NULL;
 	const char *project_name;
 	ros_executor_t **executors = NULL;
 	ros_value_t **dependencies = NULL;
+	char file_name[MAX_FILE_PATH_SIZE];
 
 	// Parameter check
 	if (package_p == NULL) {
@@ -188,8 +276,17 @@ bool generate_cmake (ros_package_t *package_p)
 		dependencies = package_p->dependencies;
 	}
 
+	// Create the file name
+	if (snprintf(file_name, MAX_FILE_PATH_SIZE, "%s/CMakeLists.txt",
+		path) >= MAX_FILE_PATH_SIZE) {
+		fprintf(stderr,
+			"Unable to create CMakeLists.txt filename! Exceeds buffer "\
+			"capacity!\n");
+		return false;
+	}
+
 	// Create the file
-	if ((file = fopen("CMakeLists.txt", "w")) == NULL) {
+	if ((file = fopen(file_name, "w")) == NULL) {
 		fprintf(stderr, "Unable to create writable file/stream \
 			CMakeLists.txt\n");
 		return false;
@@ -243,6 +340,70 @@ bool generate_cmake (ros_package_t *package_p)
 
 	// Close the file
 	fclose(file);
+
+	return true;
+}
+
+bool generate_directories (ros_package_t *package_p)
+{
+	mode_t dir_mode = S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH;
+	const char *directory = NULL, *project_name = NULL;
+
+	// Parameter check
+	if (package_p == NULL) {
+		fprintf(stderr, "%s:%d: Null parameter!\n", __FILE__, __LINE__);
+		return false;
+	} else {
+		project_name = package_p->name->data.data_string;
+	}
+
+	// Make project directory
+	if (mkdir(project_name, dir_mode) == -1) {
+		fprintf(stderr, "%s:%d: Unable to create directory: \"%s\" for "\
+			"reason: %s\n", __FILE__, __LINE__, project_name, strerror(errno));
+		return false;
+	}
+
+	// Make the source file directory path
+	if ((directory = makeStaticPath("%s/src", project_name)) == NULL) {
+		fprintf(stderr, "%s:%d: Unable to create file path (too long!)\n",
+			__FILE__, __LINE__);
+		return false;
+	}
+
+	// Create the source file directory
+	if (mkdir(directory, dir_mode) == -1) {
+		fprintf(stderr, "%s:%d: Unable to create directory \"%s\" for "\
+			"reason: %s\n", __FILE__, __LINE__, directory, strerror(errno));
+	}
+
+
+	// Make the header file directory path
+	if ((directory = makeStaticPath("%s/include", project_name)) == NULL) {
+		fprintf(stderr, "%s:%d: Unable to create file path (too long!)\n",
+			__FILE__, __LINE__);
+		return false;
+	}
+
+	// Create the header file directory
+	if (mkdir(directory, dir_mode) == -1) {
+		fprintf(stderr, "%s:%d: Unable to create directory \"%s\" for "\
+			"reason: %s\n", __FILE__, __LINE__, directory, strerror(errno));
+	}
+
+	// Make the include file sub-directory path
+	if ((directory = makeStaticPath("%s/include/%s", project_name,
+		project_name)) == NULL) {
+		fprintf(stderr, "%s:%d: Unable to create file path (too long!)\n",
+			__FILE__, __LINE__);
+		return false;
+	}
+
+	// Create the source file directory
+	if (mkdir(directory, dir_mode) == -1) {
+		fprintf(stderr, "%s:%d: Unable to create directory \"%s\" for "\
+			"reason: %s\n", __FILE__, __LINE__, directory, strerror(errno));
+	}
 
 	return true;
 }
