@@ -89,13 +89,16 @@ int main (int argc, char *argv[])
 		//show_xml_element(element_p);
 		ros_package_t *package_p = NULL;
 
+		// Status
+		printf("Collating ...\n");
+
 		// Process the package
 		if ((package_p = parse_ros_package(element_p)) == NULL) {
 			fprintf(stderr, "Err: Unable to parse package!\n");
 		} else {
 
 			// Display the package
-			show_package(package_p);
+			//show_package(package_p);
 
 			// Generate the package code files
 			generate_package(package_p);
@@ -116,8 +119,6 @@ int main (int argc, char *argv[])
 			get_err_context());
 		err = 3;
 		goto end;
-	} else {
-		fprintf(stdout, "At the end of the file!\n");
 	}
 
 	// Close the input file stream
@@ -130,6 +131,8 @@ int main (int argc, char *argv[])
 end:
 	if (err != 0) {
 		fprintf(stderr, "Exit Code %d: %s\n", err, g_error_str_tab[err]);
+	} else {
+		fprintf(stdout, "Generation successful!\n");
 	}
 	return err;
 }

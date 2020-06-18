@@ -375,8 +375,6 @@ bool generate_package (ros_package_t *package_p)
 			"(the path is too long!)\n", __FILE__, __LINE__);
 	}
 
-	printf("The executors will be placed along path: \"%s\"\n", create_path);
-
 	// Generate all executor files
 	for (ros_executor_t **p = package_p->executors; *p != NULL; ++p) {
 		if (generate_executor(create_path, *p, package_p) == false) {

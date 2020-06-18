@@ -9,6 +9,7 @@
 #include <ctype.h>
 #include <stdbool.h>
 #include <stdarg.h>
+#include <inttypes.h>
 
 #include "ros_parse.h"
 
