@@ -7,10 +7,18 @@ A ROS2 program generator. Program input is accepted from either:
 
 ## Compiling
 
-Compile this as a normal C++ program, as shown below:
+The makefile does the job of compiling the program. Simply type:
 
 ```
- gcc -o rosgen ros_env.c ros_gen.c ros_parse.c ros_semantics.c ros_synth.c
+make
+```
+
+## Installation
+
+You can optionally install the program to `/usr/local/bin` with the command:
+
+```
+make install
 ```
 
 ## Input Format
