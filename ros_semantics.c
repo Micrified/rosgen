@@ -375,6 +375,9 @@ ros_value_t **parse_strings_from_xml_collection (const char *tag,
 		ros_value_t *value = NULL;
 		char *string = NULL;
 
+		// Assign current value to be filled to zero (in case of failure)
+		value_set[offset] = NULL;
+
 		// Check name; assume topic
 		if (strcmp((*p)->tag, tag) != 0) {
 			fprintf(stderr, "Expected element \"%s\" but \
@@ -601,7 +604,7 @@ void show_executor (ros_executor_t *executor_p)
 	printf("}\n");
 }
 
-void free_package (ros_package_t *package_p)
+static void free_package_2 (ros_package_t *package_p, bool only_fields)
 {
 
 	// Handle NULL pointer case
@@ -634,8 +637,15 @@ void free_package (ros_package_t *package_p)
 		free(package_p->executors);
 	}
 
-	// Free package itself
-	free(package_p);
+	// Free package itself (but check if entire thing or only fields)
+	if (only_fields == false) {
+		free(package_p);
+	}
+}
+
+void free_package (ros_package_t *package_p)
+{
+	free_package_2(package_p, false);
 }
 
 void show_package (ros_package_t *package_p)
@@ -741,6 +751,14 @@ ros_callback_t *parse_ros_callback (xml_element_t *element)
 		}
 	}
 
+	// If timer-triggered, make sure it is not subscribed to topics
+	if (callback.timer_period != NULL && callback.topics_subscribed != NULL
+		&& callback.topics_subscribed[0] != NULL) {
+		fprintf(stderr, "Callback \"%s\" may not be both subscribed " \
+			"to topics and a timer callback!\n", callback.name->data.data_string);
+	    goto discard;
+	}
+
 	// Match optional publish topics
 	if ((set_element = exists_element_with_key("topics_publish", 
 		element->data.collection)) != NULL) {
@@ -828,6 +846,8 @@ ros_node_t *parse_ros_node (xml_element_t *element)
 		fprintf(stderr, "%s:%d Unable to allocate memory for callbacks!\n",
 			__FILE__, __LINE__);
 		goto discard;
+	} else {
+		memset(callbacks, 0, (size + 1) * sizeof(ros_callback_t *));
 	}
 
 	// Mark end of array with NULL
@@ -837,14 +857,14 @@ ros_node_t *parse_ros_node (xml_element_t *element)
 	for (e = element->data.collection; (*e) != NULL; ++e) {
 		ros_callback_t *callback = NULL;
 
-		// Try parsing as callback
-		if ((callback = parse_ros_callback(*e)) == NULL) {
+		// Parse callback
+		callbacks[offset++] = parse_ros_callback(*e);
+
+		// Check if parse successful
+		if (callbacks[offset - 1] == NULL) {
 			fprintf(stderr, "Unable to parse callback in node!\n");
 			goto discard;
 		}
-
-		// Assign pointer
-		callbacks[offset++] = callback;
 	}
 
 	// Allocate and configure a node
@@ -950,17 +970,17 @@ ros_executor_t *parse_ros_executor (xml_element_t *element)
 	nodes[size] = NULL;
 
 	// Parse elements into callbacks
-	for (e = element->data.collection; (*e) != NULL; ++e, ++offset) {
+	for (e = element->data.collection; (*e) != NULL; ++e) {
 		ros_node_t *node;
 
-		// Try parsing as node
-		if ((node = parse_ros_node(*e)) == NULL) {
+		// Parse node
+		nodes[offset++] = parse_ros_node(*e);
+
+		// If unsuccessful, then break
+		if (nodes[offset - 1] == NULL) {
 			fprintf(stderr, "Unable to parse node in executor!\n");
 			goto discard;
 		}
-
-		// Assign pointer
-		nodes[offset] = node;
 	}
 
 	// Allocate and configure a executor
@@ -1016,9 +1036,9 @@ discard:
 
 ros_package_t *parse_ros_package (xml_element_t *element)
 {
-	ros_package_t package, *package_p = NULL;
+	ros_package_t package = {0}, *package_p = NULL;
 	xml_element_t *searched_element = NULL, **p = NULL;
-	ros_executor_t *executor, **executors = NULL;
+	ros_executor_t *executor = NULL, **executors = NULL;
 	size_t size = 2;
 	off_t offset = 0;
 
@@ -1141,16 +1161,15 @@ ros_package_t *parse_ros_package (xml_element_t *element)
 			}
 		}
 
-
 		// Parse executor
-		if ((executor = parse_ros_executor(*p)) == NULL) {
-			fprintf(stderr, "Unable to parse an executor within\
-			 \"executors\"!\n");
-			goto discard;
-		}
+		executors[offset++] = parse_ros_executor(*p);
 
-		// Save executor
-		executors[offset++] = executor;
+		// Check if the result was NULL
+		if (executors[offset - 1] == NULL) {
+			fprintf(stderr, "Unable to parse an executor within " \
+			 "\"executors\"!\n");
+			goto discard;			
+		}
 	}
 
 	// Null terminate executors
@@ -1173,7 +1192,7 @@ ros_package_t *parse_ros_package (xml_element_t *element)
 
 discard:
 
-	free_package(&package);
+	free_package_2(&package, true);
 
 	return NULL;
 }

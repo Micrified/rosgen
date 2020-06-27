@@ -95,6 +95,8 @@ int main (int argc, char *argv[])
 		// Process the package
 		if ((package_p = parse_ros_package(element_p)) == NULL) {
 			fprintf(stderr, "Err: Unable to parse package!\n");
+			err = 4;
+			goto end;
 		} else {
 
 			// Display the package
